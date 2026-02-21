@@ -10,6 +10,7 @@ import yfinance as yf
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
 from stock_screener.market_data.domain.security import Security
 from stock_screener.market_data.infrastructure.cache import FileCache
+from stock_screener.shared.retry import retry_on_rate_limit
 from stock_screener.shared.types import Ticker
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,15 @@ class YFinanceSecurityRepository:
 
     def _fetch_from_yfinance(self, ticker: Ticker) -> FinancialSnapshot:
         try:
-            yf_ticker = yf.Ticker(ticker.symbol)
+            yf_ticker = retry_on_rate_limit(
+                lambda: yf.Ticker(ticker.symbol),
+                max_retries=2,
+                base_delay=1.0,
+                default=None,
+            )
+            if yf_ticker is None:
+                logger.warning("Failed to fetch data for %s (after retries)", ticker.symbol)
+                return FinancialSnapshot()
             info = yf_ticker.info
         except (requests.exceptions.RequestException, KeyError, ValueError, TypeError):
             logger.warning("Failed to fetch data for %s", ticker.symbol)

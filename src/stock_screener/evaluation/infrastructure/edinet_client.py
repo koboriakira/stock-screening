@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 import requests
 
+from stock_screener.shared.retry import retry_on_rate_limit
+
 logger = logging.getLogger(__name__)
 
 EDINET_API_BASE = "https://disclosure.edinet-fsa.go.jp/api/v2"
@@ -21,13 +23,16 @@ class EdinetClient:
             "type": 2,
             "Subscription-Key": self._api_key,
         }
-        try:
+        def _request() -> list[dict]:
             resp = requests.get(url, params=params, timeout=30)
             resp.raise_for_status()
             data = resp.json()
             return data.get("results", [])
-        except Exception:
-            logger.warning("EDINET API error for date=%s", date)
+
+        try:
+            return retry_on_rate_limit(_request, max_retries=2, base_delay=2.0, default=[])
+        except (ValueError, KeyError):
+            logger.warning("EDINET API invalid response for date=%s", date)
             return []
 
     def find_filings_by_sec_code(
