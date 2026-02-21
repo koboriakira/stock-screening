@@ -13,10 +13,13 @@ EDINET_API_BASE = "https://disclosure.edinet-fsa.go.jp/api/v2"
 
 
 class EdinetClient:
+    """EDINET API v2 クライアント。書類一覧の取得と証券コード検索を提供する。"""
+
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
 
     def get_documents(self, date: str) -> list[dict]:
+        """指定日の提出書類一覧を取得する。"""
         url = f"{EDINET_API_BASE}/documents.json"
         params = {
             "date": date,
@@ -41,6 +44,16 @@ class EdinetClient:
         doc_type_codes: list[str],
         days: int,
     ) -> list[dict]:
+        """証券コードと書類種別で過去N日間の提出書類を検索する。
+
+        Args:
+            sec_code: 5桁の証券コード(例: '72030')。
+            doc_type_codes: 対象とする書類種別コードのリスト(例: ['120', '130'])。
+            days: 過去何日分を検索するか。
+
+        Returns:
+            条件に合致する書類メタデータのリスト。
+        """
         matches: list[dict] = []
         today = datetime.now(tz=UTC).date()
         for i in range(days):
@@ -55,6 +68,10 @@ class EdinetClient:
 
     @staticmethod
     def ticker_to_sec_code(ticker_raw: str) -> str:
+        """ティッカーシンボルを EDINET 用の5桁証券コードに変換する。
+
+        末尾の '.T' を除去し、4桁の場合は末尾に '0' を付与して5桁にする。
+        """
         code = ticker_raw.removesuffix(".T")
         if len(code) == 4:
             return code + "0"

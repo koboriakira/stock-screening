@@ -17,6 +17,19 @@ def compute_per_percentile(
     eps_series: pd.Series,
     current_per: float,
 ) -> float | None:
+    """現在の PER が過去の PER 分布の何パーセンタイルに位置するかを算出する。
+
+    月次終値と年次 EPS から各月の PER を算出し、現在の PER 以下の割合を返す。
+    データが不足(6ポイント未満)の場合は None を返す。
+
+    Args:
+        monthly_prices: 月次株価データ(Close カラムを含む DataFrame)。
+        eps_series: 年次 Diluted EPS の Series。
+        current_per: 現在の PER 値。
+
+    Returns:
+        パーセンタイル値(0.0-100.0)、またはデータ不足時に None。
+    """
     if monthly_prices.empty or eps_series.empty:
         return None
 
@@ -54,7 +67,14 @@ def compute_per_percentile(
 
 
 class YFinanceEvaluationDataProvider(StubEvaluationDataProvider):
+    """yfinance API を利用した評価データプロバイダ。
+
+    StubEvaluationDataProvider を継承し、Gate2 の利益成長予想(2A-2)と
+    Gate3 の PER パーセンタイル(3-2)を yfinance の実データで実装する。
+    """
+
     def get_earnings_growth_forecast(self, ticker: Ticker) -> float | None:
+        """yfinance から予想利益成長率(earningsGrowth)を取得する。"""
         try:
             info = yf.Ticker(ticker.symbol).info
         except (requests.exceptions.RequestException, KeyError, ValueError, TypeError):
@@ -66,6 +86,7 @@ class YFinanceEvaluationDataProvider(StubEvaluationDataProvider):
         return float(value)
 
     def get_per_percentile_in_5y_range(self, ticker: Ticker) -> float | None:
+        """過去5年間の月次データから現在の PER パーセンタイルを算出する。"""
         try:
             yf_ticker = yf.Ticker(ticker.symbol)
             info = yf_ticker.info

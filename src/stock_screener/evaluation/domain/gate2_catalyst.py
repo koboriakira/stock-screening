@@ -10,7 +10,10 @@ TOB_NET_CASH_MIN = 0.30
 
 
 class CatalystGate:
+    """Gate2: カタリストチェック。株価上昇の触媒となる材料の有無を検証する。"""
+
     def evaluate(self, target: EvaluationTarget, provider: EvaluationDataProvider) -> GateResult:
+        """対象銘柄のカタリストをチェックし、1つ以上 PASS で通過。"""
         checks = [
             self._check_2a1_quarterly_progress(target, provider),
             self._check_2a2_earnings_growth(target, provider),

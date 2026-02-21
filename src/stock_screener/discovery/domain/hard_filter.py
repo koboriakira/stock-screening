@@ -9,6 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 class HardFilter:
+    """ハードフィルタ。絶対条件で銘柄を除外する。
+
+    時価総額の範囲、平均売買代金の下限、除外セクターによるフィルタリングを行う。
+    条件を満たさない銘柄は即座に除外される。
+    """
+
     def __init__(
         self,
         market_cap_min: float = HARD_FILTERS["market_cap_min"],
@@ -22,6 +28,7 @@ class HardFilter:
         self._excluded_sectors = excluded_sectors or HARD_FILTERS["excluded_sectors"]
 
     def apply(self, securities: list[Security]) -> list[Security]:
+        """全銘柄にハードフィルタを適用し、条件を満たす銘柄のみ返す。"""
         return [s for s in securities if self._passes(s)]
 
     def _passes(self, security: Security) -> bool:

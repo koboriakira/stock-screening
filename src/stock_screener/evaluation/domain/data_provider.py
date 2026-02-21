@@ -7,6 +7,11 @@ from stock_screener.shared.types import Ticker
 
 
 class EvaluationDataProvider(Protocol):
+    """3-Gate 評価で使用する外部データプロバイダのインターフェース。
+
+    Protocol により構造的部分型を実現し、各 Gate が必要とするデータ取得メソッドを定義する。
+    """
+
     def check_accounting_fraud(self, ticker: Ticker) -> CheckStatus: ...
 
     def check_going_concern(self, ticker: Ticker) -> CheckStatus: ...

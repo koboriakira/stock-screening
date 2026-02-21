@@ -9,6 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 class SoftFilter:
+    """ソフトフィルタ。緩やかな条件で銘柄を絞り込む。
+
+    PER 上限、自己資本比率下限、売上高成長率下限によるフィルタリングを行う。
+    ハードフィルタ通過後の銘柄に適用される。
+    """
+
     def __init__(
         self,
         per_max: float = SOFT_FILTERS["per_max"],
@@ -20,6 +26,7 @@ class SoftFilter:
         self._revenue_growth_min = revenue_growth_min
 
     def apply(self, securities: list[Security]) -> list[Security]:
+        """全銘柄にソフトフィルタを適用し、条件を満たす銘柄のみ返す。"""
         return [s for s in securities if self._passes(s)]
 
     def _passes(self, security: Security) -> bool:

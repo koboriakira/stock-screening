@@ -6,7 +6,10 @@ JPX_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001v
 
 
 class JpxStockListFetcher:
+    """JPX 銘柄一覧を Excel ファイルから取得するフェッチャ。"""
+
     def fetch(self, url: str = JPX_URL) -> list[dict]:
+        """JPX 銘柄一覧をダウンロードし、ティッカー・企業名・セクター等を返す。"""
         df = pd.read_excel(url)
         results = []
         for _, row in df.iterrows():

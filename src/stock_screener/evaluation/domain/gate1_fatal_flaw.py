@@ -8,7 +8,10 @@ MARGIN_RATIO_MAX = 5.0
 
 
 class FatalFlawGate:
+    """Gate1: 致命的欠陥チェック。不正会計、GC注記、信用倍率を検証する。"""
+
     def evaluate(self, target: EvaluationTarget, provider: EvaluationDataProvider) -> GateResult:
+        """対象銘柄の致命的欠陥をチェックし、GateResult を返す。"""
         checks = [
             self._check_accounting_fraud(target, provider),
             self._check_going_concern(target, provider),

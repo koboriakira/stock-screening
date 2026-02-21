@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class EvaluationService:
+    """3-Gate 評価パイプライン。Gate1 -> Gate2 -> Gate3 の順に評価を実行する。"""
+
     def __init__(self, provider: EvaluationDataProvider) -> None:
         self._provider = provider
         self._gate1 = FatalFlawGate()
@@ -22,6 +24,7 @@ class EvaluationService:
         self._gate3 = ValuationSanityGate()
 
     def execute(self, targets: list[EvaluationTarget]) -> list[EvaluationReport]:
+        """全対象銘柄を 3-Gate パイプラインで評価し、レポート一覧を返す。"""
         logger.info("評価対象: %d銘柄", len(targets))
         reports = []
         for target in targets:

@@ -9,7 +9,10 @@ PER_PERCENTILE_MAX = 25.0
 
 
 class ValuationSanityGate:
+    """Gate3: バリュエーション健全性チェック。PER水準とネットキャッシュ比率を検証する。"""
+
     def evaluate(self, target: EvaluationTarget, provider: EvaluationDataProvider) -> GateResult:
+        """対象銘柄のバリュエーション指標をチェックする(常に通過)。"""
         checks = [
             self._check_3_2_per_range(target, provider),
             self._check_3_3_net_cash(target, provider),

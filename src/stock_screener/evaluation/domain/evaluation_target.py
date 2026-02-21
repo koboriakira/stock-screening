@@ -15,6 +15,8 @@ def _parse_optional_float(value: str) -> float | None:
 
 @dataclass(frozen=True)
 class EvaluationTarget:
+    """3-Gate 評価の対象銘柄。スクリーニング結果から生成される。"""
+
     ticker: Ticker
     company_name: str
     sector: str

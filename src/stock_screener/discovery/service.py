@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ScreeningService:
+    """スクリーニングサービス。ハードフィルタ -> ソフトフィルタ -> スコアリングを実行する。"""
     def __init__(
         self,
         hard_filter: HardFilter | None = None,
@@ -22,6 +23,7 @@ class ScreeningService:
         self._soft_filter = soft_filter or SoftFilter()
 
     def execute(self, securities: list[Security], top_n: int = 30) -> ScreeningResult:
+        """銘柄リストをフィルタリング・スコアリングし、上位N件を返す。"""
         total_universe = len(securities)
         logger.info("Universe: %d securities", total_universe)
 

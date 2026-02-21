@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class FinancialSnapshot:
+    """銘柄の財務スナップショット。
+
+    yfinance 等から取得した各種財務指標をイミュータブルに保持する。
+    各フィールドはデータ未取得時に None となる。
+    """
     market_cap: float | None = field(default=None)
     per: float | None = field(default=None)
     pbr: float | None = field(default=None)

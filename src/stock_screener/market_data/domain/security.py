@@ -8,6 +8,11 @@ from stock_screener.shared.types import Ticker
 
 @dataclass
 class Security:
+    """証券銘柄を表すドメインモデル。
+
+    ティッカー、企業名、セクター、および財務スナップショットを保持する。
+    financial_snapshot は後から設定されるため、ミュータブルなフィールドとしている。
+    """
     ticker: Ticker
     company_name: str
     sector: str

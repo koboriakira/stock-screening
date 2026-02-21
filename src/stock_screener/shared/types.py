@@ -9,6 +9,11 @@ _TICKER_PATTERN = re.compile(r"^\d{4,5}$")
 
 @dataclass(frozen=True)
 class Ticker:
+    """JPX 銘柄のティッカーシンボルを表す値オブジェクト。
+
+    4-5桁の数字コードを保持し、'.T' サフィックス付きの symbol プロパティを提供する。
+    """
+
     code: str
 
     def __init__(self, raw: str) -> None:
@@ -36,10 +41,13 @@ class Ticker:
 
 @dataclass(frozen=True)
 class Money:
+    """金額を表す値オブジェクト。Decimal で精度を保証する。"""
+
     amount: Decimal
 
     @classmethod
     def yen(cls, amount: float | Decimal) -> Money:
+        """日本円の金額を生成する。"""
         return cls(amount=Decimal(str(amount)))
 
     def __add__(self, other: Money) -> Money:
@@ -72,10 +80,13 @@ class Money:
 
 @dataclass(frozen=True)
 class Percentage:
+    """パーセンテージを表す値オブジェクト。内部的には小数(0.0-1.0)で保持する。"""
+
     value: Decimal
 
     @classmethod
     def from_percent(cls, percent: float | Decimal) -> Percentage:
+        """パーセント値(例: 25.0)から生成する。内部では 0.25 として保持。"""
         return cls(value=Decimal(str(percent)) / Decimal(100))
 
     def to_percent(self) -> float:

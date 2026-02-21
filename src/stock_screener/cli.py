@@ -29,6 +29,7 @@ DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "stock-screener" / "result
 
 
 def main() -> None:
+    """CLI エントリーポイント。screen / evaluate サブコマンドを提供する。"""
     parser = argparse.ArgumentParser(
         prog="stock-screener",
         description="小型バリュー株スクリーニングシステム",
@@ -66,6 +67,7 @@ def main() -> None:
 
 
 def _run_screen(args: argparse.Namespace) -> None:
+    """screen サブコマンド: JPX 銘柄のスクリーニングを実行する。"""
     logger.info("JPX銘柄リストを取得中...")
     fetcher = JpxStockListFetcher()
     jpx_data = fetcher.fetch()
@@ -137,6 +139,7 @@ def _format_duration(seconds: float) -> str:
 
 
 def _print_result(result: ScreeningResult) -> None:
+    """スクリーニング結果をターミナルに表形式で出力する。"""
     print(f"\n{'='*80}")
     print(f"スクリーニング結果 ({result.timestamp.strftime('%Y-%m-%d %H:%M')} UTC)")
     print(f"ユニバース: {result.total_universe} → ハードフィルタ後: {result.after_hard_filter}"
@@ -153,6 +156,11 @@ def _print_result(result: ScreeningResult) -> None:
 
 
 def _build_eval_provider() -> YFinanceEvaluationDataProvider:
+    """環境変数に基づいて評価データプロバイダを構築する。
+
+    EDINET_API_KEY が設定されている場合は EdinetEvaluationDataProvider、
+    未設定の場合は YFinanceEvaluationDataProvider を返す。
+    """
     edinet_api_key = os.environ.get("EDINET_API_KEY")
     if edinet_api_key:
         logger.info("EDINET API キーが設定されています。EdinetEvaluationDataProvider を使用します。")
@@ -163,6 +171,7 @@ def _build_eval_provider() -> YFinanceEvaluationDataProvider:
 
 
 def _run_evaluate(args: argparse.Namespace) -> None:
+    """evaluate サブコマンド: スクリーニング結果を 3-Gate パイプラインで評価する。"""
     input_path = Path(args.input)
     logger.info("スクリーニング結果を読み込み中: %s", input_path)
 
@@ -184,6 +193,7 @@ def _run_evaluate(args: argparse.Namespace) -> None:
 
 
 def _print_evaluation(reports: list[EvaluationReport]) -> None:
+    """評価結果をターミナルに一覧表と詳細で出力する。"""
     print(f"\n{'='*80}")
     print("評価結果")
     print(f"{'='*80}")
@@ -210,6 +220,7 @@ def _print_evaluation(reports: list[EvaluationReport]) -> None:
 
 
 def _write_evaluation_csv(reports: list[EvaluationReport], path: Path) -> None:
+    """評価結果を CSV ファイルに出力する。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(
@@ -234,6 +245,7 @@ def _write_evaluation_csv(reports: list[EvaluationReport], path: Path) -> None:
 
 
 def _write_csv(result: ScreeningResult, path: Path) -> None:
+    """スクリーニング結果を CSV ファイルに出力する。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(

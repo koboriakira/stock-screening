@@ -11,6 +11,8 @@ from stock_screener.shared.config import SCORING_WEIGHTS, TURNAROUND_BONUS
 
 @dataclass(frozen=True)
 class ScoreResult:
+    """スコアリング結果。割安・質・変化の各スコアと加重合計を保持する。"""
+
     value: float
     quality: float
     momentum: float
@@ -18,8 +20,14 @@ class ScoreResult:
 
 
 class CompositeScorer:
+    """割安・質・変化の3カテゴリで銘柄をスコアリングする複合スコアラ。"""
+
     @staticmethod
     def score(snap: FinancialSnapshot, *, prev_operating_profit_negative: bool = False) -> ScoreResult:
+        """財務スナップショットから加重スコアを算出する。
+
+        前期営業利益が赤字かつ今期黒字転換の場合、ターンアラウンドボーナスを加算する。
+        """
         value_raw = ValueScorer.score(snap)
         quality_raw = QualityScorer.score(snap)
         momentum_raw = MomentumScorer.score(snap)

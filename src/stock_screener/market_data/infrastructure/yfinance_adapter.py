@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 class YFinanceSecurityRepository:
+    """yfinance API を利用した証券データリポジトリ。
+
+    ティッカーごとの財務スナップショットを取得し、オプションで FileCache による
+    24時間キャッシュを提供する。
+    """
+
     def __init__(self, cache: FileCache | None = None) -> None:
         self._cache = cache
 
@@ -25,6 +31,7 @@ class YFinanceSecurityRepository:
         raise NotImplementedError(msg)
 
     def get_financial_snapshot(self, ticker: Ticker) -> FinancialSnapshot:
+        """指定ティッカーの財務スナップショットを取得する。キャッシュがあれば利用する。"""
         cache_key = f"snapshot_{ticker.symbol}"
         if self._cache is not None:
             cached = self._cache.get(cache_key)
@@ -100,6 +107,7 @@ class YFinanceSecurityRepository:
 
 
 def _safe_get_dataframe(yf_ticker: yf.Ticker, attr: str) -> pd.DataFrame:
+    """yfinance Ticker オブジェクトから DataFrame 属性を安全に取得する。"""
     try:
         df = getattr(yf_ticker, attr)
         if df is None:
@@ -147,6 +155,7 @@ def _compute_operating_profit_growth(financials: pd.DataFrame) -> float | None:
 
 
 def _get_balance_sheet_value(balance_sheet: pd.DataFrame, label: str) -> float | None:
+    """貸借対照表から指定ラベルの最新値を取得する。"""
     if balance_sheet.empty or label not in balance_sheet.index:
         return None
     value = balance_sheet.loc[label].iloc[0]
