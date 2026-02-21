@@ -1,4 +1,6 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pandas as pd
 
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
 from stock_screener.shared.types import Ticker
@@ -17,7 +19,25 @@ def _make_mock_ticker_info() -> dict:
         "currentPrice": 1500,
         "fiftyTwoWeekHigh": 2000,
         "averageVolume": 500_000,
+        "totalCash": 5_000_000_000,
+        "totalDebt": 3_000_000_000,
     }
+
+
+def _make_mock_balance_sheet() -> pd.DataFrame:
+    """Total Assets = 20B, Stockholders Equity = 10B のバランスシート。"""
+    return pd.DataFrame(
+        {"2024-03-31": [20_000_000_000, 10_000_000_000]},
+        index=["Total Assets", "Stockholders Equity"],
+    )
+
+
+def _make_mock_financials() -> pd.DataFrame:
+    """営業利益: 直近 1200, 前年 1000 → 成長率 20%。"""
+    return pd.DataFrame(
+        {"2024-03-31": [1_200_000_000], "2023-03-31": [1_000_000_000]},
+        index=["Operating Income"],
+    )
 
 
 class TestYFinanceSecurityRepository:
@@ -95,3 +115,193 @@ class TestYFinanceSecurityRepository:
 
         assert snapshot.avg_trading_value is not None
         assert snapshot.avg_trading_value == 750_000_000
+
+
+class TestNetCashRatio:
+    """net_cash_ratio = (totalCash - totalDebt) / totalAssets."""
+
+    def test_net_cash_ratio_computed(self):
+        # cash=5B, debt=3B, totalAssets=20B => (5-3)/20 = 0.10
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=pd.DataFrame())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.net_cash_ratio is not None
+        assert abs(snapshot.net_cash_ratio - 0.10) < 0.01
+
+    def test_net_cash_ratio_negative(self):
+        # cash=1B, debt=5B, totalAssets=20B => (1-5)/20 = -0.20
+        mock_info = _make_mock_ticker_info()
+        mock_info["totalCash"] = 1_000_000_000
+        mock_info["totalDebt"] = 5_000_000_000
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = mock_info
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=pd.DataFrame())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.net_cash_ratio is not None
+        assert abs(snapshot.net_cash_ratio - (-0.20)) < 0.01
+
+    def test_net_cash_ratio_none_when_no_total_assets(self):
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=pd.DataFrame())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=pd.DataFrame())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.net_cash_ratio is None
+
+    def test_net_cash_ratio_none_when_no_cash_info(self):
+        mock_info = _make_mock_ticker_info()
+        del mock_info["totalCash"]
+        del mock_info["totalDebt"]
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = mock_info
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=pd.DataFrame())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.net_cash_ratio is None
+
+
+class TestEquityRatio:
+    """equity_ratio = stockholdersEquity / totalAssets."""
+
+    def test_equity_ratio_computed(self):
+        # equity=10B, totalAssets=20B => 0.50
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=pd.DataFrame())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.equity_ratio is not None
+        assert abs(snapshot.equity_ratio - 0.50) < 0.01
+
+    def test_equity_ratio_none_when_no_balance_sheet(self):
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=pd.DataFrame())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=pd.DataFrame())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.equity_ratio is None
+
+
+class TestOperatingProfitGrowth:
+    """operating_profit_growth = (直近営業利益 - 前年営業利益) / |前年営業利益|."""
+
+    def test_growth_computed(self):
+        # 1200/1000 - 1 = 0.20
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=_make_mock_financials())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.operating_profit_growth is not None
+        assert abs(snapshot.operating_profit_growth - 0.20) < 0.01
+
+    def test_growth_negative(self):
+        # 800/1000 - 1 = -0.20
+        financials = pd.DataFrame(
+            {"2024-03-31": [800_000_000], "2023-03-31": [1_000_000_000]},
+            index=["Operating Income"],
+        )
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=financials)
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.operating_profit_growth is not None
+        assert abs(snapshot.operating_profit_growth - (-0.20)) < 0.01
+
+    def test_turnaround_from_loss(self):
+        # 前年赤字(-500) → 今期黒字(200): (200 - (-500)) / |-500| = 1.40
+        financials = pd.DataFrame(
+            {"2024-03-31": [200_000_000], "2023-03-31": [-500_000_000]},
+            index=["Operating Income"],
+        )
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=financials)
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.operating_profit_growth is not None
+        assert abs(snapshot.operating_profit_growth - 1.40) < 0.01
+
+    def test_none_when_single_year(self):
+        financials = pd.DataFrame(
+            {"2024-03-31": [1_200_000_000]},
+            index=["Operating Income"],
+        )
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=financials)
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.operating_profit_growth is None
+
+    def test_none_when_no_financials(self):
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=pd.DataFrame())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.operating_profit_growth is None
+
+    def test_none_when_previous_year_zero(self):
+        financials = pd.DataFrame(
+            {"2024-03-31": [500_000_000], "2023-03-31": [0]},
+            index=["Operating Income"],
+        )
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=financials)
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.operating_profit_growth is None
