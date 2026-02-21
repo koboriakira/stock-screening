@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
-_TICKER_PATTERN = re.compile(r"^\d{4}$")
+_TICKER_PATTERN = re.compile(r"^\d{4,5}$")
 
 
 @dataclass(frozen=True)
@@ -14,7 +14,7 @@ class Ticker:
     def __init__(self, raw: str) -> None:
         code = raw.removesuffix(".T")
         if not _TICKER_PATTERN.match(code):
-            msg = f"ティッカーは4桁の数字である必要があります: {raw}"
+            msg = f"ティッカーは4-5桁の数字である必要があります: {raw}"
             raise ValueError(msg)
         object.__setattr__(self, "code", code)
 

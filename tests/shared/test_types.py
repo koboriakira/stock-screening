@@ -6,22 +6,32 @@ from stock_screener.shared.types import Money, Percentage, Ticker
 
 
 class TestTicker:
-    def test_create_with_code(self):
+    def test_create_with_4digit_code(self):
         t = Ticker("7203")
         assert t.code == "7203"
         assert t.symbol == "7203.T"
+
+    def test_create_with_5digit_code(self):
+        t = Ticker("25935")
+        assert t.code == "25935"
+        assert t.symbol == "25935.T"
 
     def test_create_with_suffix(self):
         t = Ticker("7203.T")
         assert t.code == "7203"
         assert t.symbol == "7203.T"
 
+    def test_create_with_5digit_suffix(self):
+        t = Ticker("25935.T")
+        assert t.code == "25935"
+        assert t.symbol == "25935.T"
+
     def test_invalid_code_non_numeric(self):
-        with pytest.raises(ValueError, match="4桁の数字"):
+        with pytest.raises(ValueError, match="4-5桁の数字"):
             Ticker("AAPL")
 
     def test_invalid_code_wrong_length(self):
-        with pytest.raises(ValueError, match="4桁の数字"):
+        with pytest.raises(ValueError, match="4-5桁の数字"):
             Ticker("123")
 
     def test_equality(self):
