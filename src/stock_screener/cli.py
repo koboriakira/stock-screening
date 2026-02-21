@@ -5,6 +5,7 @@ import csv
 import logging
 import os
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -82,10 +83,11 @@ def _run_screen(args: argparse.Namespace) -> None:
     repo = YFinanceSecurityRepository(cache=cache)
     total = len(universe)
     logger.info("財務データを取得中...")
+    start_time = time.monotonic()
     for i, sec in enumerate(universe.securities, 1):
         snap = repo.get_financial_snapshot(sec.ticker)
         sec.financial_snapshot = snap
-        _print_progress(i, total)
+        _print_progress(i, total, start_time, sec.ticker.symbol)
 
     service = ScreeningService()
     result = service.execute(universe.securities, top_n=args.top)
@@ -102,13 +104,36 @@ def _run_screen(args: argparse.Namespace) -> None:
     logger.info("CSV出力: %s", output_path)
 
 
-def _print_progress(current: int, total: int) -> None:
+def _print_progress(
+    current: int,
+    total: int,
+    start_time: float,
+    ticker: str = "",
+) -> None:
     """ターミナルにインラインで進捗を表示する。"""
     pct = current / total * 100
-    sys.stderr.write(f"\r  [{current}/{total}] {pct:.0f}%")
+    elapsed = time.monotonic() - start_time
+
+    if current > 1 and elapsed > 0:
+        avg_per_item = elapsed / current
+        remaining = avg_per_item * (total - current)
+        eta_str = _format_duration(remaining)
+    else:
+        eta_str = "--:--"
+
+    elapsed_str = _format_duration(elapsed)
+    ticker_display = f" {ticker:<10}" if ticker else ""
+    sys.stderr.write(f"\r  [{current}/{total}] {pct:3.0f}%{ticker_display} 経過{elapsed_str} 残{eta_str}")
     sys.stderr.flush()
     if current == total:
         sys.stderr.write("\n")
+
+
+def _format_duration(seconds: float) -> str:
+    """秒数を MM:SS 形式に変換する。"""
+    minutes = int(seconds) // 60
+    secs = int(seconds) % 60
+    return f"{minutes:02d}:{secs:02d}"
 
 
 def _print_result(result: ScreeningResult) -> None:
