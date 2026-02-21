@@ -4,6 +4,7 @@ import csv
 from unittest.mock import patch
 
 from stock_screener.cli import main
+from stock_screener.evaluation.infrastructure.stub_provider import StubEvaluationDataProvider
 
 
 def _write_screen_csv(path, rows):
@@ -30,10 +31,18 @@ def _make_screen_csv(tmp_path):
     return csv_path
 
 
+def _patch_provider():
+    """CLIがYFinanceEvaluationDataProviderを使うため、yfinance呼び出しを防ぐモック。"""
+    return patch(
+        "stock_screener.cli.YFinanceEvaluationDataProvider",
+        return_value=StubEvaluationDataProvider(),
+    )
+
+
 class TestCliEvaluate:
     def test_evaluate_from_csv(self, tmp_path, capsys):
         csv_path = _make_screen_csv(tmp_path)
-        with patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path)]):
+        with patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path)]), _patch_provider():
             main()
         captured = capsys.readouterr()
         assert "テスト株A" in captured.out
@@ -41,7 +50,7 @@ class TestCliEvaluate:
 
     def test_evaluate_prints_verdict(self, tmp_path, capsys):
         csv_path = _make_screen_csv(tmp_path)
-        with patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path)]):
+        with patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path)]), _patch_provider():
             main()
         captured = capsys.readouterr()
         has_verdict = any(v in captured.out for v in ["INVEST", "REJECT", "WATCHLIST"])
@@ -50,9 +59,12 @@ class TestCliEvaluate:
     def test_evaluate_output_csv(self, tmp_path, capsys):
         csv_path = _make_screen_csv(tmp_path)
         output_path = tmp_path / "eval.csv"
-        with patch("sys.argv", [
-            "stock-screener", "evaluate", "--input", str(csv_path), "--output", str(output_path),
-        ]):
+        with (
+            patch("sys.argv", [
+                "stock-screener", "evaluate", "--input", str(csv_path), "--output", str(output_path),
+            ]),
+            _patch_provider(),
+        ):
             main()
         assert output_path.exists()
         with output_path.open() as f:

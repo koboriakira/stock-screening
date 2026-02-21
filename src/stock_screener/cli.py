@@ -11,7 +11,7 @@ from stock_screener.discovery.domain.universe import Universe
 from stock_screener.discovery.service import ScreeningService
 from stock_screener.evaluation.domain.evaluation_report import EvaluationReport
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
-from stock_screener.evaluation.infrastructure.stub_provider import StubEvaluationDataProvider
+from stock_screener.evaluation.infrastructure.yfinance_eval_provider import YFinanceEvaluationDataProvider
 from stock_screener.evaluation.service import EvaluationService
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
@@ -110,7 +110,7 @@ def _run_evaluate(args: argparse.Namespace) -> None:
 
     logger.info("評価対象: %d銘柄", len(targets))
 
-    provider = StubEvaluationDataProvider()
+    provider = YFinanceEvaluationDataProvider()
     service = EvaluationService(provider)
     reports = service.execute(targets)
 
