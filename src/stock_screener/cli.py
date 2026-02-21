@@ -51,10 +51,17 @@ def main() -> None:
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
-    if args.command == "screen":
-        _run_screen(args)
-    elif args.command == "evaluate":
-        _run_evaluate(args)
+    try:
+        if args.command == "screen":
+            _run_screen(args)
+        elif args.command == "evaluate":
+            _run_evaluate(args)
+    except FileNotFoundError as e:
+        logger.error("ファイルが見つかりません: %s", e)
+        raise SystemExit(1) from e
+    except Exception as e:
+        logger.error("エラーが発生しました: %s", e)
+        raise SystemExit(1) from e
 
 
 def _run_screen(args: argparse.Namespace) -> None:

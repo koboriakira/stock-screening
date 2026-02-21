@@ -1,5 +1,7 @@
 import csv
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from stock_screener.cli import main
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
@@ -85,3 +87,27 @@ class TestCli:
             mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
 
             main()
+
+
+class TestCliErrorHandling:
+    def test_evaluate_missing_file(self, caplog, tmp_path):
+        missing = tmp_path / "nonexistent.csv"
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "--input", str(missing)]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+        assert "見つかりません" in caplog.text
+
+    def test_screen_jpx_fetch_failure(self, caplog):
+        mock_jpx_cls = MagicMock()
+        mock_jpx_cls.return_value.fetch.side_effect = RuntimeError("network error")
+        with (
+            patch("stock_screener.cli.JpxStockListFetcher", mock_jpx_cls),
+            patch("sys.argv", ["stock-screener", "screen", "--test"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+        assert "エラー" in caplog.text
