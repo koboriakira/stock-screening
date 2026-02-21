@@ -131,6 +131,78 @@ class TestStubChecks:
         assert check.status == CheckStatus.NEEDS_REVIEW
 
 
+class QuarterlyProgressProvider(StubProvider):
+    def __init__(self, improvement: float | None):
+        self._improvement = improvement
+
+    def get_quarterly_progress_improvement(self, ticker: Ticker) -> float | None:
+        return self._improvement
+
+
+class UpwardRevisionProvider(StubProvider):
+    def __init__(self, has_revision: bool | None):
+        self._has_revision = has_revision
+
+    def has_upward_revision(self, ticker: Ticker) -> bool | None:
+        return self._has_revision
+
+
+class ShareBuybackProvider(StubProvider):
+    def __init__(self, has_buyback: bool | None):
+        self._has_buyback = has_buyback
+
+    def has_share_buyback(self, ticker: Ticker) -> bool | None:
+        return self._has_buyback
+
+
+class TestCheck2A1QuarterlyProgress:
+    def test_improvement_above_threshold_passes(self):
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), QuarterlyProgressProvider(0.10))
+        check = next(c for c in result.checks if c.check_id == "2A-1")
+        assert check.status == CheckStatus.PASS
+
+    def test_improvement_below_threshold_fails(self):
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), QuarterlyProgressProvider(0.02))
+        check = next(c for c in result.checks if c.check_id == "2A-1")
+        assert check.status == CheckStatus.FAIL
+
+    def test_exactly_threshold_passes(self):
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), QuarterlyProgressProvider(0.05))
+        check = next(c for c in result.checks if c.check_id == "2A-1")
+        assert check.status == CheckStatus.PASS
+
+
+class TestCheck2A3UpwardRevision:
+    def test_has_revision_passes(self):
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), UpwardRevisionProvider(True))
+        check = next(c for c in result.checks if c.check_id == "2A-3")
+        assert check.status == CheckStatus.PASS
+
+    def test_no_revision_fails(self):
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), UpwardRevisionProvider(False))
+        check = next(c for c in result.checks if c.check_id == "2A-3")
+        assert check.status == CheckStatus.FAIL
+
+
+class TestCheck2B2ShareBuyback:
+    def test_has_buyback_passes(self):
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), ShareBuybackProvider(True))
+        check = next(c for c in result.checks if c.check_id == "2B-2")
+        assert check.status == CheckStatus.PASS
+
+    def test_no_buyback_fails(self):
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), ShareBuybackProvider(False))
+        check = next(c for c in result.checks if c.check_id == "2B-2")
+        assert check.status == CheckStatus.FAIL
+
+
 class TestCatalystGateAggregation:
     def test_one_pass_passes(self):
         gate = CatalystGate()

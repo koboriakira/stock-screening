@@ -143,6 +143,97 @@ class TestComputePerPercentile:
         assert result is not None
 
 
+class TestComputePerPercentileEdgeCases:
+    def test_timezone_aware_prices_handled(self):
+        dates = pd.date_range("2021-01-01", periods=12, freq="MS", tz="UTC")
+        monthly = pd.DataFrame({"Close": [100.0] * 12}, index=dates)
+        eps = _make_eps_series({"2021-03-31": 10.0})
+        result = compute_per_percentile(monthly, eps, current_per=10.0)
+        assert result is not None
+
+    def test_timezone_aware_eps_handled(self):
+        monthly = _make_monthly_prices([100.0] * 12, "2021-01-01")
+        index = pd.DatetimeIndex([pd.Timestamp("2021-03-31", tz="UTC")])
+        eps = pd.Series([10.0], index=index, name="Diluted EPS")
+        result = compute_per_percentile(monthly, eps, current_per=10.0)
+        assert result is not None
+
+    def test_zero_price_excluded(self):
+        prices = [0.0] * 6 + [100.0] * 12
+        monthly = _make_monthly_prices(prices, "2021-01-01")
+        eps = _make_eps_series({"2021-03-31": 10.0})
+        result = compute_per_percentile(monthly, eps, current_per=10.0)
+        assert result is not None
+
+    def test_too_few_data_points_returns_none(self):
+        prices = [100.0] * 3
+        monthly = _make_monthly_prices(prices, "2022-01-01")
+        eps = _make_eps_series({"2022-03-31": 10.0})
+        result = compute_per_percentile(monthly, eps, current_per=10.0)
+        assert result is None
+
+    def test_all_negative_eps_returns_none(self):
+        prices = [100.0] * 12
+        monthly = _make_monthly_prices(prices, "2022-01-01")
+        eps = _make_eps_series({"2022-03-31": -10.0, "2021-03-31": -5.0})
+        result = compute_per_percentile(monthly, eps, current_per=10.0)
+        assert result is None
+
+
+class TestGetPerPercentileInRangeEdgeCases:
+    def test_returns_none_when_empty_history(self):
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"trailingPE": 10.0}
+        mock_ticker.history.return_value = pd.DataFrame()
+        financials_df = pd.DataFrame({"col": [0]}, index=["Other"])
+        type(mock_ticker).financials = PropertyMock(return_value=financials_df)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.get_per_percentile_in_5y_range(Ticker("7203"))
+
+        assert result is None
+
+    def test_returns_none_when_financials_is_none(self):
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"trailingPE": 10.0}
+        mock_ticker.history.return_value = _make_monthly_prices([100.0] * 12)
+        type(mock_ticker).financials = PropertyMock(return_value=None)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.get_per_percentile_in_5y_range(Ticker("7203"))
+
+        assert result is None
+
+    def test_uses_forward_pe_when_trailing_missing(self):
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"forwardPE": 12.0}
+
+        prices = [100.0] * 48
+        history_df = _make_monthly_prices(prices, "2021-01-01")
+        mock_ticker.history.return_value = history_df
+
+        eps_data = _make_eps_series({
+            "2024-03-31": 10.0,
+            "2023-03-31": 10.0,
+            "2022-03-31": 10.0,
+            "2021-03-31": 10.0,
+        })
+        financials_df = pd.DataFrame({"col": [0]}, index=["Other"])
+        financials_df = pd.concat([
+            financials_df,
+            pd.DataFrame([eps_data.to_dict()], index=["Diluted EPS"]),
+        ])
+        type(mock_ticker).financials = PropertyMock(return_value=financials_df)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.get_per_percentile_in_5y_range(Ticker("7203"))
+
+        assert result is not None
+
+
 class TestGetPerPercentileInRange:
     def test_returns_percentile_from_yfinance(self):
         mock_ticker = MagicMock()

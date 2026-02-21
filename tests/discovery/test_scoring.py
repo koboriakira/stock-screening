@@ -111,6 +111,9 @@ class TestQualityScorer:
     def test_equity_ratio_low(self):
         assert QualityScorer.score_equity_ratio(0.20) == 5
 
+    def test_equity_ratio_very_low(self):
+        assert QualityScorer.score_equity_ratio(0.10) == 0
+
     def test_equity_ratio_none(self):
         assert QualityScorer.score_equity_ratio(None) == 0
 
@@ -148,6 +151,9 @@ class TestMomentumScorer:
 
     def test_op_growth_flat(self):
         assert MomentumScorer.score_operating_profit_growth(0.0) == 5
+
+    def test_op_growth_negative(self):
+        assert MomentumScorer.score_operating_profit_growth(-0.10) == 0
 
     def test_op_growth_none(self):
         assert MomentumScorer.score_operating_profit_growth(None) == 0

@@ -1,9 +1,16 @@
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pandas as pd
+import pytest
+import requests
 
 from stock_screener.market_data.infrastructure.cache import FileCache
-from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
+from stock_screener.market_data.infrastructure.yfinance_adapter import (
+    YFinanceSecurityRepository,
+    _compute_net_cash_ratio,
+    _compute_operating_profit_growth,
+    _safe_get_dataframe,
+)
 from stock_screener.shared.types import Ticker
 
 
@@ -306,6 +313,69 @@ class TestOperatingProfitGrowth:
             snapshot = repo.get_financial_snapshot(Ticker("7203"))
 
         assert snapshot.operating_profit_growth is None
+
+
+class TestGetUniverseNotImplemented:
+    def test_raises_not_implemented(self):
+        repo = YFinanceSecurityRepository()
+        with pytest.raises(NotImplementedError):
+            repo.get_universe()
+
+
+class TestFetchRetryFallback:
+    def test_returns_empty_snapshot_when_retry_returns_none(self):
+        with patch(
+            "stock_screener.market_data.infrastructure.yfinance_adapter.retry_on_rate_limit",
+            return_value=None,
+        ):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("9999"))
+
+        assert snapshot.per is None
+        assert snapshot.market_cap is None
+
+    def test_returns_empty_snapshot_on_request_error(self):
+        with patch(
+            "stock_screener.market_data.infrastructure.yfinance_adapter.retry_on_rate_limit",
+            side_effect=requests.exceptions.ConnectionError("timeout"),
+        ):
+            repo = YFinanceSecurityRepository()
+            snapshot = repo.get_financial_snapshot(Ticker("9999"))
+
+        assert snapshot.per is None
+
+
+class TestSafeGetDataframe:
+    def test_returns_empty_on_error(self):
+        mock_ticker = MagicMock()
+        type(mock_ticker).balance_sheet = PropertyMock(
+            side_effect=requests.exceptions.ConnectionError("timeout"),
+        )
+        result = _safe_get_dataframe(mock_ticker, "balance_sheet")
+        assert result.empty
+
+    def test_returns_empty_when_none(self):
+        mock_ticker = MagicMock()
+        type(mock_ticker).balance_sheet = PropertyMock(return_value=None)
+        result = _safe_get_dataframe(mock_ticker, "balance_sheet")
+        assert result.empty
+
+
+class TestComputeNetCashRatioEdgeCases:
+    def test_returns_none_when_total_assets_zero(self):
+        bs = pd.DataFrame(
+            {"2024-03-31": [0, 10_000]},
+            index=["Total Assets", "Stockholders Equity"],
+        )
+        result = _compute_net_cash_ratio(5000, 3000, bs)
+        assert result is None
+
+
+class TestComputeOperatingProfitGrowthEdgeCases:
+    def test_returns_none_when_no_operating_income_row(self):
+        financials = pd.DataFrame({"2024-03-31": [100]}, index=["Revenue"])
+        result = _compute_operating_profit_growth(financials)
+        assert result is None
 
 
 class TestCacheIntegration:

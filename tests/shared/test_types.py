@@ -44,6 +44,11 @@ class TestTicker:
     def test_str(self):
         assert str(Ticker("7203")) == "7203.T"
 
+    def test_not_equal_to_non_ticker(self):
+        t = Ticker("7203")
+        assert t != "7203"
+        assert t != 7203
+
 
 class TestMoney:
     def test_create_yen(self):

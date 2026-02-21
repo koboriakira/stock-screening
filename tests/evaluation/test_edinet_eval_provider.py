@@ -90,6 +90,18 @@ class TestCheckGoingConcern:
         assert result == CheckStatus.NEEDS_REVIEW
 
 
+class TestCheckGoingConcernError:
+    def test_returns_needs_review_on_request_error(self):
+        mock_client = MagicMock()
+        mock_client.find_filings_by_sec_code.side_effect = requests.exceptions.ConnectionError("timeout")
+        mock_client.ticker_to_sec_code.return_value = "72030"
+
+        provider = EdinetEvaluationDataProvider(edinet_client=mock_client)
+        result = provider.check_going_concern(Ticker("7203"))
+
+        assert result == CheckStatus.NEEDS_REVIEW
+
+
 class TestNoApiKey:
     def test_falls_back_to_stub_when_no_client(self):
         provider = EdinetEvaluationDataProvider(edinet_client=None)
