@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,11 +7,38 @@ dist/
 build/
 .eggs/
 *.egg
+
+# Virtual environments
 .venv/
+venv/
+
+# Testing & Linting
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
 htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment & secrets
+.env
+.env.local
+.env.production
+
+# Data files
 *.csv
 !tests/fixtures/*.csv
 .cache/
+
+# uv
+uv.lock
