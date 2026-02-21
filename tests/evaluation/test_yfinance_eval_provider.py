@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pandas as pd
 
 from stock_screener.evaluation.domain.check import CheckStatus
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import (
     YFinanceEvaluationDataProvider,
+    compute_per_percentile,
 )
 from stock_screener.shared.types import Ticker
 
@@ -74,3 +77,129 @@ class TestStubMethodsInherited:
     def test_has_upward_revision_returns_none(self):
         provider = YFinanceEvaluationDataProvider()
         assert provider.has_upward_revision(Ticker("7203")) is None
+
+
+def _make_monthly_prices(prices: list[float], start: str = "2021-01-01") -> pd.DataFrame:
+    dates = pd.date_range(start, periods=len(prices), freq="MS")
+    return pd.DataFrame({"Close": prices}, index=dates)
+
+
+def _make_eps_series(eps_dict: dict) -> pd.Series:
+    index = [pd.Timestamp(k) for k in eps_dict]
+    return pd.Series(list(eps_dict.values()), index=index, name="Diluted EPS")
+
+
+class TestComputePerPercentile:
+    def test_current_per_at_minimum_returns_low_percentile(self):
+        # PERレンジ: 5~20、現在PER=5 → パーセンタイル≒0
+        prices = [100.0] * 12 + [200.0] * 12 + [300.0] * 12 + [400.0] * 12
+        monthly = _make_monthly_prices(prices, "2021-01-01")
+        eps = _make_eps_series({
+            "2024-03-31": 20.0,
+            "2023-03-31": 20.0,
+            "2022-03-31": 20.0,
+            "2021-03-31": 20.0,
+        })
+        # 現在PER = 100/20 = 5, 最大PER = 400/20 = 20
+        result = compute_per_percentile(monthly, eps, current_per=5.0)
+        assert result is not None
+        assert result <= 25.0
+
+    def test_current_per_at_maximum_returns_high_percentile(self):
+        prices = [100.0] * 12 + [200.0] * 12 + [300.0] * 12 + [400.0] * 12
+        monthly = _make_monthly_prices(prices, "2021-01-01")
+        eps = _make_eps_series({
+            "2024-03-31": 20.0,
+            "2023-03-31": 20.0,
+            "2022-03-31": 20.0,
+            "2021-03-31": 20.0,
+        })
+        # 現在PER = 400/20 = 20 (最大値)
+        result = compute_per_percentile(monthly, eps, current_per=20.0)
+        assert result is not None
+        assert result >= 75.0
+
+    def test_returns_none_for_empty_prices(self):
+        monthly = _make_monthly_prices([])
+        eps = _make_eps_series({"2024-03-31": 20.0})
+        result = compute_per_percentile(monthly, eps, current_per=10.0)
+        assert result is None
+
+    def test_returns_none_for_empty_eps(self):
+        monthly = _make_monthly_prices([100.0] * 12)
+        eps = _make_eps_series({})
+        result = compute_per_percentile(monthly, eps, current_per=10.0)
+        assert result is None
+
+    def test_negative_eps_excluded(self):
+        prices = [100.0] * 24
+        monthly = _make_monthly_prices(prices, "2022-01-01")
+        eps = _make_eps_series({
+            "2023-03-31": -10.0,
+            "2022-03-31": 20.0,
+        })
+        result = compute_per_percentile(monthly, eps, current_per=5.0)
+        assert result is not None
+
+
+class TestGetPerPercentileInRange:
+    def test_returns_percentile_from_yfinance(self):
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"trailingPE": 10.0}
+
+        prices = [100.0] * 48
+        history_df = _make_monthly_prices(prices, "2021-01-01")
+        mock_ticker.history.return_value = history_df
+
+        eps_data = _make_eps_series({
+            "2024-03-31": 10.0,
+            "2023-03-31": 10.0,
+            "2022-03-31": 10.0,
+            "2021-03-31": 10.0,
+        })
+        financials_df = pd.DataFrame({"col": [0]}, index=["Other"])
+        financials_df = pd.concat([
+            financials_df,
+            pd.DataFrame([eps_data.to_dict()], index=["Diluted EPS"]),
+        ])
+        type(mock_ticker).financials = PropertyMock(return_value=financials_df)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.get_per_percentile_in_5y_range(Ticker("7203"))
+
+        assert result is not None
+        assert 0.0 <= result <= 100.0
+
+    def test_returns_none_on_exception(self):
+        with patch("yfinance.Ticker", side_effect=Exception("network error")):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.get_per_percentile_in_5y_range(Ticker("7203"))
+
+        assert result is None
+
+    def test_returns_none_when_no_eps_data(self):
+        mock_ticker = MagicMock()
+        mock_ticker.info = {"trailingPE": 10.0}
+        mock_ticker.history.return_value = _make_monthly_prices([100.0] * 12)
+        financials_df = pd.DataFrame({"col": [0]}, index=["Other"])
+        type(mock_ticker).financials = PropertyMock(return_value=financials_df)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.get_per_percentile_in_5y_range(Ticker("7203"))
+
+        assert result is None
+
+    def test_returns_none_when_no_trailing_pe(self):
+        mock_ticker = MagicMock()
+        mock_ticker.info = {}
+        mock_ticker.history.return_value = _make_monthly_prices([100.0] * 12)
+        financials_df = pd.DataFrame({"col": [0]}, index=["Other"])
+        type(mock_ticker).financials = PropertyMock(return_value=financials_df)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.get_per_percentile_in_5y_range(Ticker("7203"))
+
+        assert result is None
