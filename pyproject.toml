@@ -44,6 +44,8 @@ ignore = [
     "ERA",
     "FBT",
     "PLR0913",
+    "PLR2004",
+    "TC001",
 ]
 
 [dependency-groups]
