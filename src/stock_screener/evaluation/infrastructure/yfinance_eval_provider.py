@@ -24,6 +24,14 @@ def compute_per_percentile(
     if positive_eps.empty:
         return None
 
+    # タイムゾーン統一: 両方tz-naiveにする
+    if hasattr(monthly_prices.index, "tz") and monthly_prices.index.tz is not None:
+        monthly_prices = monthly_prices.copy()
+        monthly_prices.index = monthly_prices.index.tz_localize(None)
+    if hasattr(positive_eps.index, "tz") and positive_eps.index.tz is not None:
+        positive_eps = positive_eps.copy()
+        positive_eps.index = positive_eps.index.tz_localize(None)
+
     historical_pers: list[float] = []
     for date, row in monthly_prices.iterrows():
         price = row["Close"]
