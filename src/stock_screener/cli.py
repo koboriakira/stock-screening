@@ -4,6 +4,7 @@ import argparse
 import csv
 import logging
 import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
 from stock_screener.evaluation.infrastructure.edinet_eval_provider import EdinetEvaluationDataProvider
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import YFinanceEvaluationDataProvider
 from stock_screener.evaluation.service import EvaluationService
+from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
 
@@ -38,6 +40,7 @@ def main() -> None:
     screen_parser.add_argument("--top", type=int, default=30, help="上位N銘柄を出力 (default: 30)")
     screen_parser.add_argument("--output", type=str, default=None, help="CSV出力パス")
     screen_parser.add_argument("--test", action="store_true", help="テストモード (5銘柄のみ)")
+    screen_parser.add_argument("--no-cache", action="store_true", help="キャッシュを使用しない")
 
     evaluate_parser = subparsers.add_parser("evaluate", help="スクリーニング結果を評価")
     evaluate_parser.add_argument("--input", type=str, required=True, help="スクリーニング結果CSV")
@@ -66,11 +69,16 @@ def _run_screen(args: argparse.Namespace) -> None:
 
     logger.info("ユニバース: %d銘柄", len(universe))
 
-    repo = YFinanceSecurityRepository()
+    cache = None if args.no_cache else FileCache()
+    if cache:
+        logger.info("キャッシュ有効 (24時間TTL)")
+    repo = YFinanceSecurityRepository(cache=cache)
+    total = len(universe)
     logger.info("財務データを取得中...")
-    for sec in universe.securities:
+    for i, sec in enumerate(universe.securities, 1):
         snap = repo.get_financial_snapshot(sec.ticker)
         sec.financial_snapshot = snap
+        _print_progress(i, total)
 
     service = ScreeningService()
     result = service.execute(universe.securities, top_n=args.top)
@@ -85,6 +93,15 @@ def _run_screen(args: argparse.Namespace) -> None:
 
     _write_csv(result, output_path)
     logger.info("CSV出力: %s", output_path)
+
+
+def _print_progress(current: int, total: int) -> None:
+    """ターミナルにインラインで進捗を表示する。"""
+    pct = current / total * 100
+    sys.stderr.write(f"\r  [{current}/{total}] {pct:.0f}%")
+    sys.stderr.flush()
+    if current == total:
+        sys.stderr.write("\n")
 
 
 def _print_result(result: ScreeningResult) -> None:

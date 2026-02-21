@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 
 import pandas as pd
@@ -7,17 +8,35 @@ import yfinance as yf
 
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
 from stock_screener.market_data.domain.security import Security
+from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.shared.types import Ticker
 
 logger = logging.getLogger(__name__)
 
 
 class YFinanceSecurityRepository:
+    def __init__(self, cache: FileCache | None = None) -> None:
+        self._cache = cache
+
     def get_universe(self) -> list[Security]:
         msg = "get_universe should be called via ScreeningService with JPX data"
         raise NotImplementedError(msg)
 
     def get_financial_snapshot(self, ticker: Ticker) -> FinancialSnapshot:
+        cache_key = f"snapshot_{ticker.symbol}"
+        if self._cache is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return FinancialSnapshot(**cached)
+
+        snapshot = self._fetch_from_yfinance(ticker)
+
+        if self._cache is not None:
+            self._cache.set(cache_key, dataclasses.asdict(snapshot))
+
+        return snapshot
+
+    def _fetch_from_yfinance(self, ticker: Ticker) -> FinancialSnapshot:
         try:
             yf_ticker = yf.Ticker(ticker.symbol)
             info = yf_ticker.info

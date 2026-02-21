@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pandas as pd
 
+from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
 from stock_screener.shared.types import Ticker
 
@@ -305,3 +306,55 @@ class TestOperatingProfitGrowth:
             snapshot = repo.get_financial_snapshot(Ticker("7203"))
 
         assert snapshot.operating_profit_growth is None
+
+
+class TestCacheIntegration:
+    """FileCache とのキャッシュ統合テスト。"""
+
+    def _make_repo_with_mock(self, tmp_path):
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=_make_mock_financials())
+        return mock_yf_ticker
+
+    def test_cache_hit_skips_api(self, tmp_path):
+        cache = FileCache(cache_dir=tmp_path, ttl_hours=24)
+        mock_yf_ticker = self._make_repo_with_mock(tmp_path)
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker) as mock_cls:
+            repo = YFinanceSecurityRepository(cache=cache)
+            # 1回目: API を呼ぶ
+            snap1 = repo.get_financial_snapshot(Ticker("7203"))
+            # 2回目: キャッシュから取得
+            snap2 = repo.get_financial_snapshot(Ticker("7203"))
+
+        # yfinance.Ticker は1回しか呼ばれない
+        assert mock_cls.call_count == 1
+        assert snap1.per == snap2.per
+        assert snap1.market_cap == snap2.market_cap
+
+    def test_different_tickers_not_shared(self, tmp_path):
+        cache = FileCache(cache_dir=tmp_path, ttl_hours=24)
+        mock_yf_ticker = self._make_repo_with_mock(tmp_path)
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker) as mock_cls:
+            repo = YFinanceSecurityRepository(cache=cache)
+            repo.get_financial_snapshot(Ticker("7203"))
+            repo.get_financial_snapshot(Ticker("6758"))
+
+        assert mock_cls.call_count == 2
+        mock_cls.assert_any_call("7203.T")
+        mock_cls.assert_any_call("6758.T")
+
+    def test_no_cache_still_works(self):
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = _make_mock_ticker_info()
+        type(mock_yf_ticker).balance_sheet = PropertyMock(return_value=_make_mock_balance_sheet())
+        type(mock_yf_ticker).financials = PropertyMock(return_value=_make_mock_financials())
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()  # cache=None
+            snapshot = repo.get_financial_snapshot(Ticker("7203"))
+
+        assert snapshot.per == 10.0
