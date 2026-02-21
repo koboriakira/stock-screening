@@ -32,9 +32,9 @@ def _make_screen_csv(tmp_path):
 
 
 def _patch_provider():
-    """CLIがYFinanceEvaluationDataProviderを使うため、yfinance呼び出しを防ぐモック。"""
+    """CLIが_build_eval_providerで外部APIを呼ぶのを防ぐモック。"""
     return patch(
-        "stock_screener.cli.YFinanceEvaluationDataProvider",
+        "stock_screener.cli._build_eval_provider",
         return_value=StubEvaluationDataProvider(),
     )
 

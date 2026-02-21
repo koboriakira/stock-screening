@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from stock_screener.discovery.domain.universe import Universe
 from stock_screener.discovery.service import ScreeningService
 from stock_screener.evaluation.domain.evaluation_report import EvaluationReport
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
+from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
+from stock_screener.evaluation.infrastructure.edinet_eval_provider import EdinetEvaluationDataProvider
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import YFinanceEvaluationDataProvider
 from stock_screener.evaluation.service import EvaluationService
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
@@ -100,6 +103,16 @@ def _print_result(result: ScreeningResult) -> None:
     print()
 
 
+def _build_eval_provider() -> YFinanceEvaluationDataProvider:
+    edinet_api_key = os.environ.get("EDINET_API_KEY")
+    if edinet_api_key:
+        logger.info("EDINET API キーが設定されています。EdinetEvaluationDataProvider を使用します。")
+        client = EdinetClient(api_key=edinet_api_key)
+        return EdinetEvaluationDataProvider(edinet_client=client)
+    logger.info("EDINET API キー未設定。YFinanceEvaluationDataProvider を使用します。")
+    return YFinanceEvaluationDataProvider()
+
+
 def _run_evaluate(args: argparse.Namespace) -> None:
     input_path = Path(args.input)
     logger.info("スクリーニング結果を読み込み中: %s", input_path)
@@ -110,7 +123,7 @@ def _run_evaluate(args: argparse.Namespace) -> None:
 
     logger.info("評価対象: %d銘柄", len(targets))
 
-    provider = YFinanceEvaluationDataProvider()
+    provider = _build_eval_provider()
     service = EvaluationService(provider)
     reports = service.execute(targets)
 
