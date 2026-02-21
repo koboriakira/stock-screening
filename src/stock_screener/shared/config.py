@@ -18,3 +18,12 @@ SCORING_WEIGHTS = {
 }
 
 TURNAROUND_BONUS = 10
+
+EVALUATION_CONFIG = {
+    "gate1_margin_ratio_max": 5.0,
+    "gate2_earnings_growth_min": 0.20,
+    "gate2_tob_pbr_max": 1.0,
+    "gate2_tob_net_cash_min": 0.30,
+    "gate3_net_cash_ratio_min": 0.30,
+    "gate3_per_percentile_max": 25.0,
+}
