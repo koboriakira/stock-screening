@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from stock_screener.evaluation.domain.check import CheckStatus
 from stock_screener.evaluation.infrastructure.edinet_eval_provider import (
     EdinetEvaluationDataProvider,
@@ -55,7 +57,7 @@ class TestCheckAccountingFraud:
 
     def test_returns_needs_review_on_error(self):
         mock_client = MagicMock()
-        mock_client.find_filings_by_sec_code.side_effect = Exception("API error")
+        mock_client.find_filings_by_sec_code.side_effect = requests.exceptions.ConnectionError("API error")
         mock_client.ticker_to_sec_code.return_value = "72030"
 
         provider = EdinetEvaluationDataProvider(edinet_client=mock_client)

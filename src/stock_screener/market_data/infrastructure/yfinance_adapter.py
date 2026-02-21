@@ -4,6 +4,7 @@ import dataclasses
 import logging
 
 import pandas as pd
+import requests
 import yfinance as yf
 
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
@@ -40,7 +41,7 @@ class YFinanceSecurityRepository:
         try:
             yf_ticker = yf.Ticker(ticker.symbol)
             info = yf_ticker.info
-        except Exception:
+        except (requests.exceptions.RequestException, KeyError, ValueError, TypeError):
             logger.warning("Failed to fetch data for %s", ticker.symbol)
             return FinancialSnapshot()
 
@@ -95,7 +96,7 @@ def _safe_get_dataframe(yf_ticker: yf.Ticker, attr: str) -> pd.DataFrame:
         if df is None:
             return pd.DataFrame()
         return df
-    except Exception:
+    except (requests.exceptions.RequestException, KeyError, ValueError, TypeError):
         return pd.DataFrame()
 
 

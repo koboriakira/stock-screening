@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
 
 
@@ -58,7 +60,7 @@ class TestGetDocuments:
     def test_returns_empty_on_api_error(self):
         mock_response = MagicMock()
         mock_response.status_code = 500
-        mock_response.raise_for_status.side_effect = Exception("Server Error")
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("Server Error")
 
         with patch("requests.get", return_value=mock_response):
             client = EdinetClient(api_key="test-key")
@@ -67,7 +69,7 @@ class TestGetDocuments:
         assert results == []
 
     def test_returns_empty_on_network_error(self):
-        with patch("requests.get", side_effect=Exception("Connection refused")):
+        with patch("requests.get", side_effect=requests.exceptions.ConnectionError("Connection refused")):
             client = EdinetClient(api_key="test-key")
             results = client.get_documents("2025-01-15")
 

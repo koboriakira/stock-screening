@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 
+import requests
+
 from stock_screener.evaluation.domain.check import CheckStatus
 from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import (
@@ -27,7 +29,7 @@ class EdinetEvaluationDataProvider(YFinanceEvaluationDataProvider):
             if filings:
                 return CheckStatus.NEEDS_REVIEW
             return CheckStatus.PASS
-        except Exception:
+        except requests.exceptions.RequestException:
             logger.warning("EDINET check_accounting_fraud failed for %s", ticker.symbol)
             return CheckStatus.NEEDS_REVIEW
 
@@ -48,6 +50,6 @@ class EdinetEvaluationDataProvider(YFinanceEvaluationDataProvider):
                     latest.get("submitDateTime"),
                 )
             return CheckStatus.NEEDS_REVIEW
-        except Exception:
+        except requests.exceptions.RequestException:
             logger.warning("EDINET check_going_concern failed for %s", ticker.symbol)
             return CheckStatus.NEEDS_REVIEW

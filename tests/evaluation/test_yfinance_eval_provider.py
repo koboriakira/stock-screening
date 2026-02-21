@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pandas as pd
+import requests
 
 from stock_screener.evaluation.domain.check import CheckStatus
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import (
@@ -44,7 +45,7 @@ class TestGetEarningsGrowthForecast:
         assert result is None
 
     def test_returns_none_on_exception(self):
-        with patch("yfinance.Ticker", side_effect=Exception("network error")):
+        with patch("yfinance.Ticker", side_effect=requests.exceptions.ConnectionError("network error")):
             provider = YFinanceEvaluationDataProvider()
             result = provider.get_earnings_growth_forecast(Ticker("7203"))
 
@@ -172,7 +173,7 @@ class TestGetPerPercentileInRange:
         assert 0.0 <= result <= 100.0
 
     def test_returns_none_on_exception(self):
-        with patch("yfinance.Ticker", side_effect=Exception("network error")):
+        with patch("yfinance.Ticker", side_effect=requests.exceptions.ConnectionError("network error")):
             provider = YFinanceEvaluationDataProvider()
             result = provider.get_per_percentile_in_5y_range(Ticker("7203"))
 
