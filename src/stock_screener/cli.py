@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 from stock_screener.discovery.domain.candidate import ScreeningResult
@@ -14,6 +15,7 @@ from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceS
 logger = logging.getLogger(__name__)
 
 TEST_MODE_LIMIT = 5
+DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "stock-screener" / "results"
 
 
 def main() -> None:
@@ -63,8 +65,13 @@ def _run_screen(args: argparse.Namespace) -> None:
     _print_result(result)
 
     if args.output:
-        _write_csv(result, Path(args.output))
-        logger.info("CSV出力: %s", args.output)
+        output_path = Path(args.output)
+    else:
+        today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
+        output_path = DEFAULT_DATA_DIR / f"{today}.csv"
+
+    _write_csv(result, output_path)
+    logger.info("CSV出力: %s", output_path)
 
 
 def _print_result(result: ScreeningResult) -> None:
