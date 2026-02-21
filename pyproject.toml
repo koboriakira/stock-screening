@@ -40,7 +40,7 @@ ignore = [
     "TRY",
     "S101",
     "INP001",
-    "ANN",
+    "ANN401",
     "ERA",
     "FBT",
     "PLR0913",
@@ -53,6 +53,9 @@ ignore = [
     "S105",
     "ARG002",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN"]
 
 [dependency-groups]
 dev = [
