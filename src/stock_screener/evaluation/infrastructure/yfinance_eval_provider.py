@@ -6,8 +6,11 @@ import pandas as pd
 import requests
 import yfinance as yf
 
+from stock_screener.evaluation.domain.check import CheckStatus
 from stock_screener.evaluation.infrastructure.stub_provider import StubEvaluationDataProvider
 from stock_screener.shared.types import Ticker
+
+GOING_CONCERN_EQUITY_RATIO_MIN = 0.10
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,34 @@ class YFinanceEvaluationDataProvider(StubEvaluationDataProvider):
     StubEvaluationDataProvider を継承し、Gate2 の利益成長予想(2A-2)と
     Gate3 の PER パーセンタイル(3-2)を yfinance の実データで実装する。
     """
+
+    def check_going_concern(self, ticker: Ticker) -> CheckStatus:
+        """yfinance のバランスシートから自己資本比率を算出し、GC リスクを簡易判定する。
+
+        自己資本比率 < 10% の場合は FAIL を返す。
+        データ取得できない場合や 10% 以上の場合は NEEDS_REVIEW(EDINET 未接続のため)。
+        """
+        try:
+            yf_ticker = yf.Ticker(ticker.symbol)
+            bs = yf_ticker.balance_sheet
+            if bs is None or bs.empty:
+                return CheckStatus.NEEDS_REVIEW
+            if "Stockholders Equity" not in bs.index or "Total Assets" not in bs.index:
+                return CheckStatus.NEEDS_REVIEW
+
+            # 最新期のデータを使用
+            equity = bs.loc["Stockholders Equity"].iloc[0]
+            assets = bs.loc["Total Assets"].iloc[0]
+            if assets is None or assets <= 0:
+                return CheckStatus.NEEDS_REVIEW
+
+            equity_ratio = float(equity) / float(assets)
+            if equity_ratio < GOING_CONCERN_EQUITY_RATIO_MIN:
+                return CheckStatus.FAIL
+        except (requests.exceptions.RequestException, KeyError, ValueError, TypeError, IndexError):
+            logger.warning("Failed to check going concern for %s", ticker.symbol)
+
+        return CheckStatus.NEEDS_REVIEW
 
     def get_earnings_growth_forecast(self, ticker: Ticker) -> float | None:
         """yfinance から予想利益成長率(earningsGrowth)を取得する。"""

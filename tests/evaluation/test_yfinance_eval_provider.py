@@ -67,10 +67,6 @@ class TestStubMethodsInherited:
         provider = YFinanceEvaluationDataProvider()
         assert provider.check_accounting_fraud(Ticker("7203")) == CheckStatus.NEEDS_REVIEW
 
-    def test_check_going_concern_returns_needs_review(self):
-        provider = YFinanceEvaluationDataProvider()
-        assert provider.check_going_concern(Ticker("7203")) == CheckStatus.NEEDS_REVIEW
-
     def test_get_margin_trading_ratio_returns_none(self):
         provider = YFinanceEvaluationDataProvider()
         assert provider.get_margin_trading_ratio(Ticker("7203")) is None
@@ -78,6 +74,75 @@ class TestStubMethodsInherited:
     def test_has_upward_revision_returns_none(self):
         provider = YFinanceEvaluationDataProvider()
         assert provider.has_upward_revision(Ticker("7203")) is None
+
+
+class TestCheckGoingConcern:
+    """check_going_concern: equity_ratio < 10% -> FAIL, otherwise NEEDS_REVIEW."""
+
+    def test_low_equity_ratio_fails(self):
+        """自己資本比率 < 10% の場合は FAIL。"""
+        mock_ticker = MagicMock()
+        bs = pd.DataFrame(
+            {"2024-03-31": [50.0, 1000.0]},
+            index=["Stockholders Equity", "Total Assets"],
+        )
+        type(mock_ticker).balance_sheet = PropertyMock(return_value=bs)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.check_going_concern(Ticker("7203"))
+
+        assert result == CheckStatus.FAIL
+
+    def test_healthy_equity_ratio_needs_review(self):
+        """自己資本比率 >= 10% の場合は NEEDS_REVIEW(EDINET未接続)。"""
+        mock_ticker = MagicMock()
+        bs = pd.DataFrame(
+            {"2024-03-31": [300.0, 1000.0]},
+            index=["Stockholders Equity", "Total Assets"],
+        )
+        type(mock_ticker).balance_sheet = PropertyMock(return_value=bs)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.check_going_concern(Ticker("7203"))
+
+        assert result == CheckStatus.NEEDS_REVIEW
+
+    def test_missing_balance_sheet_needs_review(self):
+        """バランスシートが取得できない場合は NEEDS_REVIEW。"""
+        mock_ticker = MagicMock()
+        type(mock_ticker).balance_sheet = PropertyMock(return_value=pd.DataFrame())
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.check_going_concern(Ticker("7203"))
+
+        assert result == CheckStatus.NEEDS_REVIEW
+
+    def test_exception_returns_needs_review(self):
+        """例外発生時は NEEDS_REVIEW。"""
+        with patch("yfinance.Ticker", side_effect=requests.exceptions.ConnectionError("network error")):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.check_going_concern(Ticker("7203"))
+
+        assert result == CheckStatus.NEEDS_REVIEW
+
+    def test_boundary_exactly_10_percent_needs_review(self):
+        """自己資本比率 = ちょうど10% の場合は NEEDS_REVIEW(FAILでない)。"""
+        mock_ticker = MagicMock()
+        bs = pd.DataFrame(
+            {"2024-03-31": [100.0, 1000.0]},
+            index=["Stockholders Equity", "Total Assets"],
+        )
+        type(mock_ticker).balance_sheet = PropertyMock(return_value=bs)
+
+        with patch("yfinance.Ticker", return_value=mock_ticker):
+            provider = YFinanceEvaluationDataProvider()
+            result = provider.check_going_concern(Ticker("7203"))
+
+        # 100/1000 = 0.10 -> ちょうど10%はFAILではない
+        assert result == CheckStatus.NEEDS_REVIEW
 
 
 def _make_monthly_prices(prices: list[float], start: str = "2021-01-01") -> pd.DataFrame:
