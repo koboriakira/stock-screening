@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
-from stock_screener.shared.config import ANOMALY_DOMAIN_RULES
+from stock_screener.shared.config import ANOMALY_DOMAIN_RULES, ANOMALY_IQR_MULTIPLIER
+
+_IQR_TARGET_FIELDS = ("per", "pbr", "roe", "operating_margin", "net_cash_ratio", "high_52w_discount")
+_MIN_IQR_SAMPLES = 4
 
 
 @dataclass(frozen=True)
@@ -52,3 +55,59 @@ class AnomalyDetector:
                     ),
                 )
         return flags
+
+    def check_iqr_outliers(
+        self,
+        snapshot: FinancialSnapshot,
+        universe: list[FinancialSnapshot],
+    ) -> list[AnomalyFlag]:
+        """Check if snapshot values are IQR outliers relative to universe.
+
+        Uses Q1 - 3.0*IQR and Q3 + 3.0*IQR as bounds.
+        Requires at least 4 non-None values in universe to compute IQR.
+        """
+        flags: list[AnomalyFlag] = []
+        for field in _IQR_TARGET_FIELDS:
+            target_value = getattr(snapshot, field, None)
+            if target_value is None:
+                continue
+            values = sorted(
+                v
+                for s in universe
+                if (v := getattr(s, field, None)) is not None
+            )
+            if len(values) < _MIN_IQR_SAMPLES:
+                continue
+            q1, q3 = _percentile(values, 0.25), _percentile(values, 0.75)
+            iqr = q3 - q1
+            lower = q1 - ANOMALY_IQR_MULTIPLIER * iqr
+            upper = q3 + ANOMALY_IQR_MULTIPLIER * iqr
+            if target_value < lower:
+                flags.append(
+                    AnomalyFlag(
+                        field=field,
+                        value=target_value,
+                        rule="iqr_outlier",
+                        detail=f"{field} {target_value:.4f} < IQR lower {lower:.4f}",
+                    ),
+                )
+            elif target_value > upper:
+                flags.append(
+                    AnomalyFlag(
+                        field=field,
+                        value=target_value,
+                        rule="iqr_outlier",
+                        detail=f"{field} {target_value:.4f} > IQR upper {upper:.4f}",
+                    ),
+                )
+        return flags
+
+
+def _percentile(sorted_values: list[float], p: float) -> float:
+    """Compute p-th percentile from sorted list using linear interpolation."""
+    n = len(sorted_values)
+    idx = p * (n - 1)
+    lo = int(idx)
+    hi = min(lo + 1, n - 1)
+    frac = idx - lo
+    return sorted_values[lo] * (1 - frac) + sorted_values[hi] * frac

@@ -1,4 +1,4 @@
-"""Tests for AnomalyDetector domain rules."""
+"""Tests for AnomalyDetector."""
 
 from __future__ import annotations
 
@@ -151,3 +151,80 @@ class TestDomainRuleDetection:
         flags = detector.check_domain_rules(snapshot)
         assert len(flags) == 1
         assert flags[0].field == "equity_ratio"
+
+
+class TestIqrOutlierDetection:
+    """Tests for IQR-based outlier detection (Rule 1)."""
+
+    def _make_snapshots(self, per_values: list[float]) -> list[FinancialSnapshot]:
+        return [_make_snapshot(per=v) for v in per_values]
+
+    def test_normal_distribution_no_flags(self) -> None:
+        """Values within IQR bounds should not be flagged."""
+        # 10 normal PER values around 10-15
+        values = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 11.5, 12.5, 13.5, 14.5]
+        snapshots = self._make_snapshots(values)
+        detector = AnomalyDetector()
+        target = _make_snapshot(per=12.0)
+        flags = detector.check_iqr_outliers(target, snapshots)
+        assert flags == []
+
+    def test_extreme_outlier_flagged(self) -> None:
+        """An extreme outlier should be flagged."""
+        # Normal values: 10-15, then a target with PER=200
+        values = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 11.5, 12.5, 13.5, 14.5]
+        snapshots = self._make_snapshots(values)
+        detector = AnomalyDetector()
+        target = _make_snapshot(per=200.0)
+        flags = detector.check_iqr_outliers(target, snapshots)
+        per_flags = [f for f in flags if f.field == "per"]
+        assert len(per_flags) == 1
+        assert per_flags[0].rule == "iqr_outlier"
+
+    def test_low_outlier_flagged(self) -> None:
+        """A very low outlier should be flagged."""
+        values = [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 11.5, 12.5, 13.5, 14.5]
+        snapshots = self._make_snapshots(values)
+        detector = AnomalyDetector()
+        target = _make_snapshot(per=0.01)
+        flags = detector.check_iqr_outliers(target, snapshots)
+        per_flags = [f for f in flags if f.field == "per"]
+        assert len(per_flags) == 1
+
+    def test_none_values_skipped(self) -> None:
+        """None values in universe should be skipped."""
+        snapshots = [_make_snapshot(per=None) for _ in range(5)]
+        detector = AnomalyDetector()
+        target = _make_snapshot(per=10.0)
+        flags = detector.check_iqr_outliers(target, snapshots)
+        # Not enough data to compute IQR, so no flags
+        assert flags == []
+
+    def test_target_none_skipped(self) -> None:
+        """None value in target should not produce flags for that field."""
+        values = [10.0, 11.0, 12.0, 13.0, 14.0]
+        snapshots = self._make_snapshots(values)
+        detector = AnomalyDetector()
+        target = _make_snapshot(per=None)
+        flags = detector.check_iqr_outliers(target, snapshots)
+        per_flags = [f for f in flags if f.field == "per"]
+        assert per_flags == []
+
+    def test_insufficient_data_no_flags(self) -> None:
+        """With too few data points, IQR cannot be computed reliably."""
+        snapshots = [_make_snapshot(per=10.0)]
+        detector = AnomalyDetector()
+        target = _make_snapshot(per=100.0)
+        flags = detector.check_iqr_outliers(target, snapshots)
+        per_flags = [f for f in flags if f.field == "per"]
+        assert per_flags == []
+
+    def test_multiple_fields_checked(self) -> None:
+        """IQR check should cover multiple fields."""
+        # Create universe with normal PBR values
+        snapshots = [_make_snapshot(pbr=v) for v in [0.8, 0.9, 1.0, 1.1, 1.2, 1.0, 0.9, 1.1, 0.95, 1.05]]
+        detector = AnomalyDetector()
+        target = _make_snapshot(pbr=50.0)  # extreme outlier
+        flags = detector.check_iqr_outliers(target, snapshots)
+        pbr_flags = [f for f in flags if f.field == "pbr"]
+        assert len(pbr_flags) == 1
