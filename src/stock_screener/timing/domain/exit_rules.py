@@ -46,9 +46,13 @@ def check_exit_conditions(
     """
     unrealized_pnl = (current_price - holding.entry_price) * holding.shares
     unrealized_pnl_pct = (current_price - holding.entry_price) / holding.entry_price
+    days_held = (today - holding.entry_date).days
 
-    # 判定優先順: stop_loss > time_stop > target_hit > hold
-    if current_price <= holding.stop_loss:
+    # 判定優先順: force_sell > stop_loss > time_stop > target_hit > hold
+    if holding.force_sell_flag:
+        action = "force_sell"
+        reason = f"強制売却: {holding.force_sell_reason or '理由未指定'}"
+    elif current_price <= holding.stop_loss:
         action = "stop_loss"
         reason = f"損切り: {current_price} <= {holding.stop_loss}"
     elif today >= holding.max_holding_date:
@@ -68,4 +72,11 @@ def check_exit_conditions(
         "current_price": current_price,
         "unrealized_pnl": unrealized_pnl,
         "unrealized_pnl_pct": unrealized_pnl_pct,
+        "name": holding.name,
+        "entry_price": holding.entry_price,
+        "shares": holding.shares,
+        "days_held": days_held,
+        "stop_loss": holding.stop_loss,
+        "target_price": holding.target_price,
+        "max_holding_date": holding.max_holding_date.isoformat(),
     }

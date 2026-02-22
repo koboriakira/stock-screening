@@ -102,7 +102,7 @@ class TestCheckExitConditions:
         assert abs(result["unrealized_pnl_pct"] - expected_pct) < 0.0001
 
     def test_result_structure(self):
-        """返却値の構造"""
+        """返却値の構造(拡張フィールド含む)"""
         holding = _make_holding()
         result = check_exit_conditions(holding, 1800, date(2026, 3, 1))
         assert "ticker" in result
@@ -111,3 +111,52 @@ class TestCheckExitConditions:
         assert "current_price" in result
         assert "unrealized_pnl" in result
         assert "unrealized_pnl_pct" in result
+        assert "name" in result
+        assert "entry_price" in result
+        assert "shares" in result
+        assert "days_held" in result
+        assert "stop_loss" in result
+        assert "target_price" in result
+        assert "max_holding_date" in result
+
+    def test_m05_force_sell_highest_priority(self):
+        """T-M05: force_sell が全判定より優先される"""
+        holding = Holding(
+            ticker="5599.T",
+            name="S&J",
+            shares=100,
+            entry_price=1780,
+            entry_date=date(2026, 1, 15),
+            stop_loss=1513,
+            target_price=2670,
+            max_holding_date=date(2026, 7, 14),
+            force_sell_flag=True,
+            force_sell_reason="Gate1再評価でREJECT",
+        )
+        # stop_loss にも該当する価格だが force_sell が優先
+        result = check_exit_conditions(holding, 1500, date(2026, 3, 1))
+        assert result["action"] == "force_sell"
+        assert "Gate1再評価でREJECT" in result["reason"]
+
+    def test_m06_force_sell_without_reason(self):
+        """T-M06: force_sell_reason が None の場合のデフォルトメッセージ"""
+        holding = Holding(
+            ticker="5599.T",
+            name="S&J",
+            shares=100,
+            entry_price=1780,
+            entry_date=date(2026, 1, 15),
+            stop_loss=1513,
+            target_price=2670,
+            max_holding_date=date(2026, 7, 14),
+            force_sell_flag=True,
+        )
+        result = check_exit_conditions(holding, 1800, date(2026, 3, 1))
+        assert result["action"] == "force_sell"
+
+    def test_days_held_calculation(self):
+        """保有日数の計算"""
+        holding = _make_holding(entry_date=date(2026, 1, 15))
+        result = check_exit_conditions(holding, 1800, date(2026, 3, 1))
+        expected_days = (date(2026, 3, 1) - date(2026, 1, 15)).days
+        assert result["days_held"] == expected_days
