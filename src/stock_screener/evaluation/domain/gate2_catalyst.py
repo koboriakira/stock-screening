@@ -101,11 +101,11 @@ class CatalystGate:
         if snap.dividend_yield >= DIVIDEND_YIELD_THRESHOLD:
             return CheckResult(
                 "2B-3", CheckStatus.NEEDS_REVIEW, "配当性向引き上げ",
-                f"配当利回り={snap.dividend_yield:.1%} 配当方針変更の確認が必要",
+                f"配当利回り={snap.dividend_yield:.1f}% 配当方針変更の確認が必要",
             )
         return CheckResult(
             "2B-3", CheckStatus.FAIL, "配当性向引き上げ",
-            f"配当利回り={snap.dividend_yield:.1%} 低水準",
+            f"配当利回り={snap.dividend_yield:.1f}% 低水準",
         )
 
     def _check_2c1_unprofitable_exit(
