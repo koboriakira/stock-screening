@@ -187,6 +187,8 @@ def _print_result(result: ScreeningResult) -> None:
             f" {_fmt_f(snap.per):>6} {_fmt_f(snap.pbr):>5}"
             f" {_fmt_pct(snap.dividend_yield):>5} {_fmt_pct(snap.net_cash_ratio):>5}"
         )
+        if snap.data_completeness < 0.7:
+            line += f"  [!] {snap.data_completeness:.0%}"
         print(line)
     print()
 
@@ -284,7 +286,7 @@ def _write_evaluation_csv(reports: list[EvaluationReport], path: Path) -> None:
                     "gate2": "PASS" if r.gate2.passed else "FAIL",
                     "gate3": "PASS" if r.gate3.passed else "FAIL",
                     "score_total": r.target.score_total,
-                }
+                },
             )
 
 
@@ -309,6 +311,8 @@ _CSV_FIELDNAMES = [
     "net_cash_ratio",
     "week52_high_discount",
     "current_price",
+    "data_completeness",
+    "missing_fields",
     "screening_date",
 ]
 
@@ -345,6 +349,8 @@ def _write_csv(result: ScreeningResult, path: Path) -> None:
                     "net_cash_ratio": snap.net_cash_ratio,
                     "week52_high_discount": snap.high_52w_discount,
                     "current_price": snap.current_price,
+                    "data_completeness": round(snap.data_completeness, 2),
+                    "missing_fields": ",".join(snap.missing_fields),
                     "screening_date": screening_date,
-                }
+                },
             )
