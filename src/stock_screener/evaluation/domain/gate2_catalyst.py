@@ -7,6 +7,7 @@ from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
 EARNINGS_GROWTH_MIN = 0.20
 TOB_PBR_MAX = 1.0
 TOB_NET_CASH_MIN = 0.30
+DIVIDEND_YIELD_THRESHOLD = 0.03
 
 
 class CatalystGate:
@@ -18,7 +19,12 @@ class CatalystGate:
             self._check_2a1_quarterly_progress(target, provider),
             self._check_2a2_earnings_growth(target, provider),
             self._check_2a3_upward_revision(target, provider),
+            self._check_2b1_pbr_improvement(target, provider),
             self._check_2b2_share_buyback(target, provider),
+            self._check_2b3_dividend_policy(target, provider),
+            self._check_2c1_unprofitable_exit(target, provider),
+            self._check_2c2_new_business(target, provider),
+            self._check_2d1_major_shareholder_sale(target, provider),
             self._check_2d2_tob_mbo(target, provider),
         ]
         return GateResult.for_gate2("Gate2: カタリスト", checks)
@@ -53,6 +59,22 @@ class CatalystGate:
             return CheckResult("2A-3", CheckStatus.PASS, "上方修正実績", "直近1年以内に上方修正あり")
         return CheckResult("2A-3", CheckStatus.FAIL, "上方修正実績", "上方修正なし")
 
+    def _check_2b1_pbr_improvement(
+        self, target: EvaluationTarget, provider: EvaluationDataProvider,
+    ) -> CheckResult:
+        snap = target.financial_snapshot
+        if snap.pbr is None:
+            return CheckResult("2B-1", CheckStatus.NEEDS_REVIEW, "PBR1倍割れ改善要請", "データ不足")
+        if snap.pbr < 1.0:
+            return CheckResult(
+                "2B-1", CheckStatus.NEEDS_REVIEW, "PBR1倍割れ改善要請",
+                f"PBR={snap.pbr:.2f} 東証改善要請対象の可能性あり（手動確認）",
+            )
+        return CheckResult(
+            "2B-1", CheckStatus.FAIL, "PBR1倍割れ改善要請",
+            f"PBR={snap.pbr:.2f} 改善要請対象外",
+        )
+
     def _check_2b2_share_buyback(
         self, target: EvaluationTarget, provider: EvaluationDataProvider,
     ) -> CheckResult:
@@ -62,6 +84,46 @@ class CatalystGate:
         if has_buyback:
             return CheckResult("2B-2", CheckStatus.PASS, "自社株買い", "自社株買い実施/発表あり")
         return CheckResult("2B-2", CheckStatus.FAIL, "自社株買い", "自社株買いなし")
+
+    def _check_2b3_dividend_policy(
+        self, target: EvaluationTarget, provider: EvaluationDataProvider,
+    ) -> CheckResult:
+        snap = target.financial_snapshot
+        if snap.dividend_yield is None:
+            return CheckResult("2B-3", CheckStatus.NEEDS_REVIEW, "配当性向引き上げ", "データ不足")
+        if snap.dividend_yield >= DIVIDEND_YIELD_THRESHOLD:
+            return CheckResult(
+                "2B-3", CheckStatus.NEEDS_REVIEW, "配当性向引き上げ",
+                f"配当利回り={snap.dividend_yield:.1%} 配当方針変更の確認が必要",
+            )
+        return CheckResult(
+            "2B-3", CheckStatus.FAIL, "配当性向引き上げ",
+            f"配当利回り={snap.dividend_yield:.1%} 低水準",
+        )
+
+    def _check_2c1_unprofitable_exit(
+        self, target: EvaluationTarget, provider: EvaluationDataProvider,
+    ) -> CheckResult:
+        return CheckResult(
+            "2C-1", CheckStatus.NEEDS_REVIEW, "不採算事業撤退",
+            "データソース未接続のため手動確認が必要",
+        )
+
+    def _check_2c2_new_business(
+        self, target: EvaluationTarget, provider: EvaluationDataProvider,
+    ) -> CheckResult:
+        return CheckResult(
+            "2C-2", CheckStatus.NEEDS_REVIEW, "新規事業・事業転換",
+            "データソース未接続のため手動確認が必要",
+        )
+
+    def _check_2d1_major_shareholder_sale(
+        self, target: EvaluationTarget, provider: EvaluationDataProvider,
+    ) -> CheckResult:
+        return CheckResult(
+            "2D-1", CheckStatus.NEEDS_REVIEW, "大株主による売却",
+            "データソース未接続のため手動確認が必要",
+        )
 
     def _check_2d2_tob_mbo(
         self, target: EvaluationTarget, provider: EvaluationDataProvider,
