@@ -10,7 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from stock_screener.discovery.domain.candidate import ScreeningResult
+from stock_screener.discovery.domain.diff_report import DiffReport, ScreeningResultSnapshot
 from stock_screener.discovery.domain.universe import Universe
+from stock_screener.discovery.infrastructure.snapshot_repository import FileSnapshotRepository
 from stock_screener.discovery.service import ScreeningService
 from stock_screener.evaluation.domain.evaluation_report import EvaluationReport
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
@@ -50,6 +52,9 @@ def main() -> None:
     evaluate_parser.add_argument("--input", type=str, required=True, help="スクリーニング結果CSV")
     evaluate_parser.add_argument("--output", type=str, default=None, help="評価結果CSV出力パス")
 
+    diff_parser = subparsers.add_parser("diff", help="前回との差分レポート")
+    diff_parser.add_argument("--top", type=int, default=20, help="上位N銘柄で比較 (default: 20)")
+
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -60,6 +65,8 @@ def main() -> None:
             _run_screen(args)
         elif args.command == "evaluate":
             _run_evaluate(args)
+        elif args.command == "diff":
+            _run_diff(args)
     except FileNotFoundError as e:
         logger.error("ファイルが見つかりません: %s", e)
         raise SystemExit(1) from e
@@ -100,6 +107,12 @@ def _run_screen(args: argparse.Namespace) -> None:
     output_path = Path(args.output) if args.output else _default_output_path()
     _write_csv(result, output_path)
     logger.info("CSV: %s", output_path)
+
+    # Save snapshot for diff
+    snapshot = ScreeningResultSnapshot.from_screening_result(result)
+    snap_repo = FileSnapshotRepository()
+    snap_path = snap_repo.save(snapshot)
+    logger.info("Snapshot: %s", snap_path)
 
 
 def _default_output_path() -> Path:
@@ -278,6 +291,23 @@ def _run_evaluate(args: argparse.Namespace) -> None:
     if args.output:
         _write_evaluation_csv(reports, Path(args.output))
         logger.info("評価結果CSV出力: %s", args.output)
+
+
+def _run_diff(args: argparse.Namespace) -> None:
+    """diff subcommand: compare latest screening result with previous."""
+    snap_repo = FileSnapshotRepository()
+    latest = snap_repo.load_latest()
+    if latest is None:
+        logger.error("No snapshot found. Run 'screen' first.")
+        raise SystemExit(1)
+
+    previous = snap_repo.load_previous()
+    if previous is None:
+        logger.error("Only one snapshot found. Need at least two for diff.")
+        raise SystemExit(1)
+
+    diff = DiffReport.compare(previous, latest, top_n=args.top)
+    print(diff.format())
 
 
 def _print_evaluation(reports: list[EvaluationReport]) -> None:
