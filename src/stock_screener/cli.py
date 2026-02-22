@@ -24,7 +24,7 @@ from stock_screener.market_data.domain.security import Security
 from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
-from stock_screener.shared.config import HARD_FILTERS
+from stock_screener.shared.config import HARD_FILTERS, dump_config
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +225,7 @@ def _fmt_f(value: float | None) -> str:
 def _print_result(result: ScreeningResult) -> None:
     """Print screening results in tabular format with extended columns."""
     width = 140
+    print(f"\n{dump_config()}")
     print(f"\n{'=' * width}")
     print(f"Screening ({result.timestamp.strftime('%Y-%m-%d %H:%M')} UTC)")
     print(

@@ -45,3 +45,33 @@ EVALUATION_CONFIG = {
     "gate3_net_cash_ratio_min": 0.30,
     "gate3_per_percentile_max": 25.0,
 }
+
+
+def dump_config() -> str:
+    """Dump all screening configuration as a human-readable string."""
+    lines: list[str] = []
+    lines.append("=== Screening Config ===")
+
+    # Hard filters
+    lines.append(f"market_cap_min: {HARD_FILTERS['market_cap_min']:,}")
+    lines.append(f"market_cap_max: {HARD_FILTERS['market_cap_max']:,}")
+    lines.append(f"avg_trading_value_min: {HARD_FILTERS['avg_trading_value_min']:,}")
+    lines.append(f"excluded_sectors: {HARD_FILTERS['excluded_sectors']}")
+    lines.append(f"excluded_categories: {HARD_FILTERS['excluded_categories']}")
+
+    # Soft filters
+    lines.append(f"per_max: {SOFT_FILTERS['per_max']}")
+    lines.append(f"equity_ratio_min: {SOFT_FILTERS['equity_ratio_min']}")
+    lines.append(f"revenue_growth_min: {SOFT_FILTERS['revenue_growth_min']}")
+
+    # Scoring
+    lines.append(f"scoring_mode: {SCORING_MODE}")
+    lines.append(f"hybrid_base_ratio: {HYBRID_BASE_RATIO}")
+    weights_str = ", ".join(f"{k}={v:.2f}" for k, v in SCORING_WEIGHTS.items())
+    lines.append(f"scoring_weights: {weights_str}")
+
+    # Missing data
+    lines.append(f"missing_data_policy: {MISSING_DATA_POLICY}")
+    lines.append(f"missing_data_exclude_threshold: {MISSING_DATA_EXCLUDE_THRESHOLD}")
+
+    return "\n".join(lines)
