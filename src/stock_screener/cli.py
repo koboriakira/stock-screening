@@ -9,6 +9,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from stock_screener.discovery.domain.anomaly_detector import AnomalyDetector
 from stock_screener.discovery.domain.candidate import ScreeningResult
 from stock_screener.discovery.domain.diff_report import DiffReport, ScreeningResultSnapshot
 from stock_screener.discovery.domain.universe import Universe
@@ -102,6 +103,23 @@ def _run_screen(args: argparse.Namespace) -> None:
     service = ScreeningService()
     result = service.execute(stage2_candidates, top_n=args.top)
 
+    # Anomaly detection
+    snap_repo = FileSnapshotRepository()
+    previous = snap_repo.load_latest()
+    universe_snaps = [s.financial_snapshot for s in stage2_candidates]
+    detector = AnomalyDetector()
+    anomaly_flags = detector.detect_all(result.candidates, universe_snaps, previous)
+    result = ScreeningResult(
+        candidates=result.candidates,
+        total_universe=result.total_universe,
+        after_hard_filter=result.after_hard_filter,
+        after_soft_filter=result.after_soft_filter,
+        timestamp=result.timestamp,
+        anomaly_flags=anomaly_flags,
+    )
+    if anomaly_flags:
+        logger.info("Anomaly flags: %d stocks", len(anomaly_flags))
+
     _print_result(result)
 
     output_path = Path(args.output) if args.output else _default_output_path()
@@ -110,7 +128,6 @@ def _run_screen(args: argparse.Namespace) -> None:
 
     # Save snapshot for diff
     snapshot = ScreeningResultSnapshot.from_screening_result(result)
-    snap_repo = FileSnapshotRepository()
     snap_path = snap_repo.save(snapshot)
     logger.info("Snapshot: %s", snap_path)
 
@@ -201,6 +218,13 @@ def _format_duration(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def _format_anomaly_flags(flags: list) -> str:
+    """Format anomaly flags as a CSV-safe string."""
+    if not flags:
+        return ""
+    return "; ".join(f"[{f.rule}:{f.field}={f.value}]" for f in flags)
+
+
 def _fmt_oku(market_cap: float | None) -> str:
     """Format market cap in oku-yen."""
     if market_cap is None:
@@ -253,6 +277,10 @@ def _print_result(result: ScreeningResult) -> None:
         )
         if snap.data_completeness < 0.7:
             line += f"  [!] {snap.data_completeness:.0%}"
+        ticker_flags = result.anomaly_flags.get(c.security.ticker.symbol, [])
+        if ticker_flags:
+            flag_fields = ", ".join(f.field for f in ticker_flags)
+            line += f"  [W] {flag_fields}"
         print(line)
     print()
 
@@ -394,6 +422,7 @@ _CSV_FIELDNAMES = [
     "current_price",
     "data_completeness",
     "missing_fields",
+    "anomaly_flags",
     "screening_date",
 ]
 
@@ -432,6 +461,9 @@ def _write_csv(result: ScreeningResult, path: Path) -> None:
                     "current_price": snap.current_price,
                     "data_completeness": round(snap.data_completeness, 2),
                     "missing_fields": ",".join(snap.missing_fields),
+                    "anomaly_flags": _format_anomaly_flags(
+                        result.anomaly_flags.get(c.security.ticker.symbol, []),
+                    ),
                     "screening_date": screening_date,
                 },
             )
