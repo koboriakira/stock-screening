@@ -124,3 +124,62 @@ class TestTimingService:
 
         json_path = order_dir / "20260222_order.json"
         assert json_path.exists()
+
+    def test_execute_with_eval_detail_csv(self, tmp_path):
+        """eval_detail形式(1銘柄複数行)でも重複なくエントリー判定されること"""
+        eval_csv = tmp_path / "eval_detail.csv"
+        fieldnames = [
+            "rank", "ticker", "company_name", "sector",
+            "verdict", "score_total", "gate", "check_id",
+            "check_status", "check_description", "check_detail",
+        ]
+        with eval_csv.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            # 5599.T が invest で3行
+            for check_id in ["1-1", "1-2", "2A-2"]:
+                writer.writerow({
+                    "rank": 3, "ticker": "5599.T",
+                    "company_name": "S&J", "sector": "情報・通信業",
+                    "verdict": "invest", "score_total": 78.51,
+                    "gate": "Gate1", "check_id": check_id,
+                    "check_status": "pass",
+                    "check_description": "テスト", "check_detail": "",
+                })
+            # 4377.T が watchlist で2行
+            for check_id in ["1-1", "1-2"]:
+                writer.writerow({
+                    "rank": 2, "ticker": "4377.T",
+                    "company_name": "ワンキャリア", "sector": "情報・通信業",
+                    "verdict": "watchlist", "score_total": 78.53,
+                    "gate": "Gate1", "check_id": check_id,
+                    "check_status": "pass",
+                    "check_description": "テスト", "check_detail": "",
+                })
+
+        portfolio = Portfolio(total_capital=1_000_000, cash_balance=1_000_000)
+        portfolio_repo = PortfolioRepository(base_dir=tmp_path)
+        portfolio_repo.save(portfolio)
+        calendar_repo = CalendarRepository(path=tmp_path / "calendar.json")
+
+        service = TimingService(
+            portfolio_repo=portfolio_repo,
+            calendar_repo=calendar_repo,
+        )
+
+        with patch(
+            "stock_screener.timing.service.fetch_market_data",
+            side_effect=_mock_market_data,
+        ) as mock_fetch:
+            text = service.execute(
+                str(eval_csv),
+                today=date(2026, 2, 22),
+                output_dir=str(tmp_path / "orders"),
+            )
+
+        # 5599.T は1回だけ fetch されること(重複なし)
+        tickers_called = [call.args[0] for call in mock_fetch.call_args_list]
+        assert tickers_called.count("5599.T") == 1
+        assert "5599.T" in text
+        # watchlist の 4377.T は含まれない
+        assert "4377.T" not in text

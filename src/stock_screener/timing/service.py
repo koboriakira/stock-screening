@@ -64,11 +64,25 @@ class TimingService:
         return generate_order_sheet(entry_results, exit_results, portfolio, today, order_dir)
 
     def _load_invest_tickers(self, csv_path: str) -> list[dict[str, str]]:
-        """eval CSV から verdict="invest" の銘柄を抽出する。"""
+        """eval CSV から verdict="invest" の銘柄を抽出する。
+
+        eval_detail 形式(1銘柄複数行)の場合も ticker で重複排除して
+        最初の行だけを採用する。
+        """
         path = Path(csv_path)
+        seen: set[str] = set()
+        results: list[dict[str, str]] = []
         with path.open(newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            return [row for row in reader if row.get("verdict", "").lower() == "invest"]
+            for row in reader:
+                if row.get("verdict", "").lower() != "invest":
+                    continue
+                ticker = row.get("ticker", "")
+                if ticker in seen:
+                    continue
+                seen.add(ticker)
+                results.append(row)
+        return results
 
     def _check_entries(
         self,
