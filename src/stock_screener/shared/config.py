@@ -37,6 +37,19 @@ MISSING_DATA_EXCLUDE_THRESHOLD = 0.30  # exclude方式の閾値
 
 TURNAROUND_BONUS = 10
 
+# Anomaly detection settings
+ANOMALY_IQR_MULTIPLIER = 3.0
+ANOMALY_SCORE_CHANGE_THRESHOLD = 20.0
+ANOMALY_DOMAIN_RULES: dict[str, dict[str, float]] = {
+    "pbr": {"min": 0.05, "max": 50.0},
+    "per": {"min": 0.1, "max": 200.0},
+    "roe": {"min": -1.0, "max": 1.0},
+    "operating_margin": {"min": -1.0, "max": 1.0},
+    "equity_ratio": {"min": 0.0, "max": 1.0},
+    "dividend_yield": {"min": 0.0, "max": 0.20},
+    "net_cash_ratio": {"min": -2.0, "max": 5.0},
+}
+
 EVALUATION_CONFIG = {
     "gate1_margin_ratio_max": 5.0,
     "gate2_earnings_growth_min": 0.20,
