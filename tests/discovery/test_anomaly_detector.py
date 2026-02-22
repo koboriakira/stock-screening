@@ -7,8 +7,12 @@ from datetime import UTC, datetime
 import pytest
 
 from stock_screener.discovery.domain.anomaly_detector import AnomalyDetector, AnomalyFlag
+from stock_screener.discovery.domain.candidate import Candidate
 from stock_screener.discovery.domain.diff_report import CandidateSnapshot, ScreeningResultSnapshot
+from stock_screener.discovery.domain.scoring import ScoreResult
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
+from stock_screener.market_data.domain.security import Security
+from stock_screener.shared.types import Ticker
 
 
 def _make_snapshot(**kwargs: float | None) -> FinancialSnapshot:
@@ -326,3 +330,59 @@ class TestScoreChangeDetection:
             previous=prev,
         )
         assert result == {}
+
+
+def _make_candidate(ticker: str, score: float, **snap_kwargs: float | None) -> Candidate:
+    """Create a Candidate with the given ticker, score, and snapshot overrides."""
+    snap = _make_snapshot(**snap_kwargs)
+    security = Security(
+        ticker=Ticker(ticker),
+        company_name="TestCo",
+        sector="情報・通信業",
+        market=None,
+    )
+    security.financial_snapshot = snap
+    return Candidate(
+        security=security,
+        score=ScoreResult(value=score * 0.4, quality=score * 0.3, momentum=score * 0.3, total=score),
+        rank=1,
+    )
+
+
+class TestDetectAll:
+    """Tests for detect_all integration method."""
+
+    def test_no_anomalies(self) -> None:
+        """Normal candidates should produce empty dict."""
+        candidate = _make_candidate("1234.T", 80.0)
+        detector = AnomalyDetector()
+        result = detector.detect_all([candidate], [_make_snapshot()])
+        assert result == {}
+
+    def test_domain_rule_detected(self) -> None:
+        """Domain rule anomaly should be included."""
+        candidate = _make_candidate("1234.T", 80.0, pbr=0.002)
+        detector = AnomalyDetector()
+        result = detector.detect_all([candidate], [_make_snapshot()])
+        assert "1234.T" in result
+        assert any(f.rule == "domain_range" for f in result["1234.T"])
+
+    def test_iqr_and_domain_merged(self) -> None:
+        """IQR and domain flags should be merged for same ticker."""
+        universe = [_make_snapshot(pbr=v) for v in [0.8, 0.9, 1.0, 1.1, 1.2, 1.0, 0.9, 1.1, 0.95, 1.05]]
+        candidate = _make_candidate("1234.T", 80.0, pbr=0.002)
+        detector = AnomalyDetector()
+        result = detector.detect_all([candidate], universe)
+        assert "1234.T" in result
+        rules = {f.rule for f in result["1234.T"]}
+        assert "domain_range" in rules
+        assert "iqr_outlier" in rules
+
+    def test_score_change_included(self) -> None:
+        """Score change flags should be included."""
+        prev = _make_prev_snapshot([("1234.T", "TestCo", 50.0)])
+        candidate = _make_candidate("1234.T", 80.0)
+        detector = AnomalyDetector()
+        result = detector.detect_all([candidate], [_make_snapshot()], previous=prev)
+        assert "1234.T" in result
+        assert any(f.rule == "score_change" for f in result["1234.T"])

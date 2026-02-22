@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from stock_screener.discovery.domain.diff_report import ScreeningResultSnapshot
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
+
+if TYPE_CHECKING:
+    from stock_screener.discovery.domain.candidate import Candidate
 from stock_screener.shared.config import (
     ANOMALY_DOMAIN_RULES,
     ANOMALY_IQR_MULTIPLIER,
@@ -143,6 +147,45 @@ class AnomalyDetector:
                     ),
                 ]
         return result
+
+    def detect_all(
+        self,
+        candidates: list[Candidate],
+        universe_snapshots: list[FinancialSnapshot],
+        previous: ScreeningResultSnapshot | None = None,
+    ) -> dict[str, list[AnomalyFlag]]:
+        """Run all anomaly detection rules and merge results.
+
+        Args:
+            candidates: Screening result candidates.
+            universe_snapshots: All snapshots in the universe for IQR calculation.
+            previous: Previous screening snapshot for score change detection.
+
+        Returns:
+            Mapping of ticker symbol to list of AnomalyFlag.
+        """
+        all_flags: dict[str, list[AnomalyFlag]] = {}
+
+        for c in candidates:
+            ticker = c.security.ticker.symbol
+            snap = c.security.financial_snapshot
+            flags: list[AnomalyFlag] = []
+
+            # Rule 1: IQR outliers
+            flags.extend(self.check_iqr_outliers(snap, universe_snapshots))
+            # Rule 2: Domain range
+            flags.extend(self.check_domain_rules(snap))
+
+            if flags:
+                all_flags[ticker] = flags
+
+        # Rule 3: Score changes
+        current_scores = {c.security.ticker.symbol: c.score.total for c in candidates}
+        score_flags = self.check_score_changes(current_scores, previous)
+        for ticker, flags in score_flags.items():
+            all_flags.setdefault(ticker, []).extend(flags)
+
+        return all_flags
 
 
 def _percentile(sorted_values: list[float], p: float) -> float:

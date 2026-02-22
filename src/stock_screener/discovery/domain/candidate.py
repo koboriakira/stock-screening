@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from stock_screener.discovery.domain.scoring import ScoreResult
 from stock_screener.market_data.domain.security import Security
+
+if TYPE_CHECKING:
+    from stock_screener.discovery.domain.anomaly_detector import AnomalyFlag
 
 
 @dataclass(frozen=True)
@@ -25,3 +29,4 @@ class ScreeningResult:
     after_hard_filter: int
     after_soft_filter: int
     timestamp: datetime
+    anomaly_flags: dict[str, list[AnomalyFlag]] = field(default_factory=dict)
