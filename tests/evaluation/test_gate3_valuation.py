@@ -111,9 +111,53 @@ class TestValuationSanityGateAggregation:
         result = gate.evaluate(target, PerPercentileProvider(50.0))
         assert result.passed is True
 
-    def test_has_two_checks(self):
+    def test_has_three_checks(self):
         gate = ValuationSanityGate()
         result = gate.evaluate(_make_target(), StubProvider())
-        assert len(result.checks) == 2
+        assert len(result.checks) == 3
         check_ids = {c.check_id for c in result.checks}
-        assert check_ids == {"3-2", "3-3"}
+        assert check_ids == {"3-1", "3-2", "3-3"}
+
+
+class TestCheck31PeerComparison:
+    """3-1: 同業比較ヒント。"""
+
+    def test_low_valuation_high_roe_hints_temporary(self):
+        """PER/PBR低水準 + ROE高水準 -> 一時的要因の可能性。"""
+        gate = ValuationSanityGate()
+        target = _make_target(
+            financial_snapshot=FinancialSnapshot(per=5.0, pbr=0.5, roe=0.12),
+        )
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "3-1")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+        assert "一時的要因" in (check.detail or "")
+
+    def test_low_valuation_low_roe_hints_value_trap(self):
+        """PER/PBR低水準 + ROE低水準 -> バリュートラップリスク。"""
+        gate = ValuationSanityGate()
+        target = _make_target(
+            financial_snapshot=FinancialSnapshot(per=5.0, pbr=0.5, roe=0.03),
+        )
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "3-1")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+        assert "バリュートラップ" in (check.detail or "")
+
+    def test_normal_valuation_no_special_hint(self):
+        """PER/PBRが通常水準の場合は一般的なヒント。"""
+        gate = ValuationSanityGate()
+        target = _make_target(
+            financial_snapshot=FinancialSnapshot(per=15.0, pbr=1.5, roe=0.10),
+        )
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "3-1")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+
+    def test_missing_data_needs_review(self):
+        """データ不足の場合は NEEDS_REVIEW。"""
+        gate = ValuationSanityGate()
+        target = _make_target(financial_snapshot=FinancialSnapshot())
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "3-1")
+        assert check.status == CheckStatus.NEEDS_REVIEW
