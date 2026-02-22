@@ -28,6 +28,85 @@ class TestHolding:
         assert h.signals_at_entry == ["S1", "S2"]
         assert h.signal_score == 2
 
+    def test_new_fields_default_values(self):
+        """新フィールドはデフォルト値で後方互換性を保つ"""
+        h = Holding(
+            ticker="5599.T",
+            name="S&J",
+            shares=100,
+            entry_price=1780,
+            entry_date=date(2026, 1, 15),
+            stop_loss=1513,
+            target_price=2670,
+            max_holding_date=date(2026, 7, 14),
+        )
+        assert h.trailing_count == 0
+        assert h.extension_count == 0
+        assert h.force_sell_flag is False
+        assert h.force_sell_reason is None
+
+    def test_new_fields_explicit_values(self):
+        """新フィールドを明示的に指定できる"""
+        h = Holding(
+            ticker="5599.T",
+            name="S&J",
+            shares=100,
+            entry_price=1780,
+            entry_date=date(2026, 1, 15),
+            stop_loss=1513,
+            target_price=2670,
+            max_holding_date=date(2026, 7, 14),
+            trailing_count=2,
+            extension_count=1,
+            force_sell_flag=True,
+            force_sell_reason="Gate1再評価でREJECT",
+        )
+        assert h.trailing_count == 2
+        assert h.extension_count == 1
+        assert h.force_sell_flag is True
+        assert h.force_sell_reason == "Gate1再評価でREJECT"
+
+    def test_new_fields_roundtrip(self):
+        """新フィールドのシリアライズ/デシリアライズ"""
+        h = Holding(
+            ticker="5599.T",
+            name="S&J",
+            shares=100,
+            entry_price=1780,
+            entry_date=date(2026, 1, 15),
+            stop_loss=1513,
+            target_price=2670,
+            max_holding_date=date(2026, 7, 14),
+            trailing_count=1,
+            extension_count=2,
+            force_sell_flag=True,
+            force_sell_reason="不正会計検出",
+        )
+        d = h.to_dict()
+        restored = Holding.from_dict(d)
+        assert restored.trailing_count == 1
+        assert restored.extension_count == 2
+        assert restored.force_sell_flag is True
+        assert restored.force_sell_reason == "不正会計検出"
+
+    def test_from_dict_backward_compatible(self):
+        """旧形式のdictからも新フィールドがデフォルト値で復元される"""
+        d = {
+            "ticker": "5599.T",
+            "name": "S&J",
+            "shares": 100,
+            "entry_price": 1780,
+            "entry_date": "2026-01-15",
+            "stop_loss": 1513,
+            "target_price": 2670,
+            "max_holding_date": "2026-07-14",
+        }
+        h = Holding.from_dict(d)
+        assert h.trailing_count == 0
+        assert h.extension_count == 0
+        assert h.force_sell_flag is False
+        assert h.force_sell_reason is None
+
     def test_holding_is_frozen(self):
         h = Holding(
             ticker="5599.T",

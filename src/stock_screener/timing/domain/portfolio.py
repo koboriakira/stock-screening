@@ -16,6 +16,10 @@ class Holding:
     max_holding_date: date
     signals_at_entry: list[str] = field(default_factory=list)
     signal_score: int = 0
+    trailing_count: int = 0
+    extension_count: int = 0
+    force_sell_flag: bool = False
+    force_sell_reason: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -29,6 +33,10 @@ class Holding:
             "max_holding_date": self.max_holding_date.isoformat(),
             "signals_at_entry": self.signals_at_entry,
             "signal_score": self.signal_score,
+            "trailing_count": self.trailing_count,
+            "extension_count": self.extension_count,
+            "force_sell_flag": self.force_sell_flag,
+            "force_sell_reason": self.force_sell_reason,
         }
 
     @classmethod
@@ -44,6 +52,10 @@ class Holding:
             max_holding_date=date.fromisoformat(d["max_holding_date"]),
             signals_at_entry=d.get("signals_at_entry", []),
             signal_score=d.get("signal_score", 0),
+            trailing_count=d.get("trailing_count", 0),
+            extension_count=d.get("extension_count", 0),
+            force_sell_flag=d.get("force_sell_flag", False),
+            force_sell_reason=d.get("force_sell_reason"),
         )
 
 
