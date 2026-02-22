@@ -88,3 +88,29 @@ class TestEvaluationService:
         service = EvaluationService(provider)
         reports = service.execute([target])
         assert reports[0].evaluated_at is not None
+
+    def test_anomaly_flags_skip_gate_evaluation(self):
+        """異常値フラグのある銘柄はGate評価をスキップしWATCHLIST判定になる。"""
+        target = _make_target(
+            anomaly_flags=["[domain_range:pbr=0.002]", "[domain_range:operating_profit_growth=1553.555]"],
+        )
+        provider = EarningsGrowthProvider(0.30)
+        service = EvaluationService(provider)
+        reports = service.execute([target])
+        report = reports[0]
+        assert report.verdict == Verdict.WATCHLIST
+        assert len(report.gate1.checks) == 0
+        assert len(report.gate2.checks) == 0
+        assert len(report.gate3.checks) == 0
+        assert report.verdict_reason is not None
+        assert "異常値" in report.verdict_reason
+
+    def test_no_anomaly_flags_normal_evaluation(self):
+        """異常値フラグがない銘柄は通常のGate評価が実行される。"""
+        target = _make_target(anomaly_flags=[])
+        provider = StubEvaluationDataProvider()
+        service = EvaluationService(provider)
+        reports = service.execute([target])
+        report = reports[0]
+        assert len(report.gate1.checks) > 0
+        assert report.verdict_reason is None

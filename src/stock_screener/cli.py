@@ -380,6 +380,8 @@ def _print_evaluation(reports: list[EvaluationReport]) -> None:
     for r in reports:
         print(f"\n--- {r.target.ticker.symbol} ({r.target.company_name}) ---")
         print(f"  判定: {r.verdict.value.upper()}")
+        if r.verdict_reason:
+            print(f"  理由: {r.verdict_reason}")
         for gate_result in [r.gate1, r.gate2, r.gate3]:
             stats = _gate_stats_str(gate_result)
             review_count = sum(

@@ -35,3 +35,4 @@ class EvaluationReport:
     gate3: GateResult
     verdict: Verdict
     evaluated_at: datetime
+    verdict_reason: str | None = None

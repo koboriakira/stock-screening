@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from stock_screener.evaluation.domain.check import GateResult
 from stock_screener.evaluation.domain.data_provider import EvaluationDataProvider
-from stock_screener.evaluation.domain.evaluation_report import EvaluationReport, determine_verdict
+from stock_screener.evaluation.domain.evaluation_report import EvaluationReport, Verdict, determine_verdict
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
 from stock_screener.evaluation.domain.gate1_fatal_flaw import FatalFlawGate
 from stock_screener.evaluation.domain.gate2_catalyst import CatalystGate
@@ -39,6 +39,22 @@ class EvaluationService:
         return reports
 
     def _evaluate_single(self, target: EvaluationTarget) -> EvaluationReport:
+        # 異常値フラグがある場合はGate評価をスキップ
+        if target.anomaly_flags:
+            empty_gate1 = GateResult.for_gate1("Gate1: 致命的欠陥", [])
+            empty_gate2 = GateResult.for_gate2("Gate2: カタリスト", [])
+            empty_gate3 = GateResult.for_gate3("Gate3: バリュエーション", [])
+            reason = f"異常値検知のためGate評価保留: {', '.join(target.anomaly_flags)}"
+            return EvaluationReport(
+                target=target,
+                gate1=empty_gate1,
+                gate2=empty_gate2,
+                gate3=empty_gate3,
+                verdict=Verdict.WATCHLIST,
+                evaluated_at=datetime.now(tz=UTC),
+                verdict_reason=reason,
+            )
+
         gate1_result = self._gate1.evaluate(target, self._provider)
 
         if not gate1_result.passed:

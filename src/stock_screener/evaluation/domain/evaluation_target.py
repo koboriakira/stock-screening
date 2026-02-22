@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from stock_screener.discovery.domain.candidate import Candidate
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
 from stock_screener.shared.types import Ticker
+
+
+def _parse_anomaly_flags(value: str) -> list[str]:
+    if not value or value.strip() == "":
+        return []
+    return [f.strip() for f in value.split(";") if f.strip()]
 
 
 def _parse_optional_float(value: str) -> float | None:
@@ -23,6 +29,7 @@ class EvaluationTarget:
     financial_snapshot: FinancialSnapshot
     discovery_rank: int
     score_total: float
+    anomaly_flags: list[str] = field(default_factory=list)
 
     @classmethod
     def from_candidate(cls, candidate: Candidate) -> EvaluationTarget:
@@ -57,4 +64,5 @@ class EvaluationTarget:
             ),
             discovery_rank=int(row["rank"]),
             score_total=float(row["total_score"]),
+            anomaly_flags=_parse_anomaly_flags(row.get("anomaly_flags", "")),
         )
