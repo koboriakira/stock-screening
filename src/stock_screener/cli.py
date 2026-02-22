@@ -34,8 +34,7 @@ TEST_MODE_LIMIT = 5
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "stock-screener" / "results"
 
 
-def main() -> None:
-    """CLI エントリーポイント。screen / evaluate サブコマンドを提供する。"""
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="stock-screener",
         description="小型バリュー株スクリーニングシステム",
@@ -61,20 +60,45 @@ def main() -> None:
     timing_parser.add_argument("--input", type=str, required=True, help="評価結果CSV")
     timing_parser.add_argument("--output-dir", type=str, default=None, help="オーダーシート出力先ディレクトリ")
 
+    monitor_parser = subparsers.add_parser("monitor", help="保有銘柄の日次モニタリング")
+    monitor_parser.add_argument("--skip-calendar", action="store_true", help="営業日判定をスキップ")
+
+    sell_parser = subparsers.add_parser("record-sell", help="売却を記録")
+    sell_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー")
+    sell_parser.add_argument("--price", type=float, required=True, help="売却価格")
+    sell_parser.add_argument("--reason", type=str, required=True, help="売却理由")
+
+    trailing_parser = subparsers.add_parser("record-trailing", help="トレイリングストップを適用")
+    trailing_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー")
+
+    extension_parser = subparsers.add_parser("record-extension", help="保有期間延長を適用")
+    extension_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー")
+
+    return parser
+
+
+def main() -> None:
+    """CLI エントリーポイント。"""
+    parser = _build_parser()
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 
+    handlers = {
+        "screen": _run_screen,
+        "evaluate": _run_evaluate,
+        "diff": _run_diff,
+        "timing": _run_timing,
+        "monitor": _run_monitor,
+        "record-sell": _run_record_sell,
+        "record-trailing": _run_record_trailing,
+        "record-extension": _run_record_extension,
+    }
+
     try:
-        if args.command == "screen":
-            _run_screen(args)
-        elif args.command == "evaluate":
-            _run_evaluate(args)
-        elif args.command == "diff":
-            _run_diff(args)
-        elif args.command == "timing":
-            _run_timing(args)
+        handler = handlers[args.command]
+        handler(args)
     except FileNotFoundError as e:
         logger.error("ファイルが見つかりません: %s", e)
         raise SystemExit(1) from e
@@ -561,3 +585,73 @@ def _run_timing(args: argparse.Namespace) -> None:
         output_dir=args.output_dir,
     )
     print(text)
+
+
+def _run_monitor(args: argparse.Namespace) -> None:
+    """monitor サブコマンド: 保有銘柄の日次モニタリングを実行する。"""
+    from stock_screener.monitoring.service import DailyMonitoringService  # noqa: PLC0415
+
+    logger.info("日次モニタリングを開始")
+    service = DailyMonitoringService()
+    result = service.execute(skip_calendar=args.skip_calendar)
+
+    if result["skipped"]:
+        print(f"スキップ: {result['reason']}")
+        return
+
+    print(f"モニタリング結果 ({result['date']})")
+    print(f"  対象銘柄数: {len(result['results'])}")
+    print(f"  通知送信数: {result['notifications_sent']}")
+    if result["report_path"]:
+        print(f"  レポート: {result['report_path']}")
+
+    for r in result["results"]:
+        action = r["action"]
+        ticker = r["ticker"]
+        pnl_pct = r.get("unrealized_pnl_pct", 0)
+        print(f"  {ticker}: {action} ({pnl_pct:+.1%})")
+
+
+def _run_record_sell(args: argparse.Namespace) -> None:
+    """record-sell サブコマンド: 売却を記録する。"""
+    from stock_screener.monitoring.domain.portfolio_updater import record_sell  # noqa: PLC0415
+    from stock_screener.timing.infrastructure.portfolio_repository import PortfolioRepository  # noqa: PLC0415
+
+    repo = PortfolioRepository()
+    portfolio = repo.load()
+
+    import datetime as _dt  # noqa: PLC0415
+
+    today = _dt.datetime.now(tz=_dt.UTC).date()
+    updated = record_sell(portfolio, args.ticker, args.price, today, args.reason)
+    repo.save(updated)
+    logger.info("売却記録: %s @ %.0f (%s)", args.ticker, args.price, args.reason)
+    print(f"売却記録完了: {args.ticker} @ {args.price:.0f} ({args.reason})")
+
+
+def _run_record_trailing(args: argparse.Namespace) -> None:
+    """record-trailing サブコマンド: トレイリングストップを適用する。"""
+    from stock_screener.monitoring.domain.portfolio_updater import apply_trailing_stop  # noqa: PLC0415
+    from stock_screener.timing.infrastructure.portfolio_repository import PortfolioRepository  # noqa: PLC0415
+
+    repo = PortfolioRepository()
+    portfolio = repo.load()
+    updated = apply_trailing_stop(portfolio, args.ticker)
+    repo.save(updated)
+    h = updated.find_holding(args.ticker)
+    logger.info("トレイリング適用: %s (count=%d, target=%.0f)", args.ticker, h.trailing_count, h.target_price)
+    print(f"トレイリング適用: {args.ticker} (回数={h.trailing_count}, 新目標値={h.target_price:.0f})")
+
+
+def _run_record_extension(args: argparse.Namespace) -> None:
+    """record-extension サブコマンド: 保有期間延長を適用する。"""
+    from stock_screener.monitoring.domain.portfolio_updater import apply_time_extension  # noqa: PLC0415
+    from stock_screener.timing.infrastructure.portfolio_repository import PortfolioRepository  # noqa: PLC0415
+
+    repo = PortfolioRepository()
+    portfolio = repo.load()
+    updated = apply_time_extension(portfolio, args.ticker)
+    repo.save(updated)
+    h = updated.find_holding(args.ticker)
+    logger.info("保有期間延長: %s (count=%d, max_date=%s)", args.ticker, h.extension_count, h.max_holding_date)
+    print(f"保有期間延長: {args.ticker} (回数={h.extension_count}, 新期限={h.max_holding_date})")
