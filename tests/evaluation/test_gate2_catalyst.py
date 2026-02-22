@@ -80,6 +80,29 @@ class TestCheck2A2EarningsGrowth:
         check = next(c for c in result.checks if c.check_id == "2A-2")
         assert check.status == CheckStatus.NEEDS_REVIEW
 
+    def test_extreme_high_growth_needs_review(self):
+        """成長率が+500%を超える場合は異常値としてNEEDS_REVIEW。"""
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), EarningsGrowthProvider(15.0))
+        check = next(c for c in result.checks if c.check_id == "2A-2")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+        assert "異常値" in check.detail
+
+    def test_extreme_low_growth_needs_review(self):
+        """成長率が-95%を下回る場合は異常値としてNEEDS_REVIEW。"""
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), EarningsGrowthProvider(-0.98))
+        check = next(c for c in result.checks if c.check_id == "2A-2")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+        assert "異常値" in check.detail
+
+    def test_boundary_500_percent_not_flagged(self):
+        """成長率ちょうど+500%は正常範囲。"""
+        gate = CatalystGate()
+        result = gate.evaluate(_make_target(), EarningsGrowthProvider(5.0))
+        check = next(c for c in result.checks if c.check_id == "2A-2")
+        assert check.status == CheckStatus.PASS
+
 
 class TestCheck2D2TobMbo:
     def test_pbr_low_net_cash_high_passes(self):

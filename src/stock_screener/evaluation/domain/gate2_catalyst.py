@@ -5,6 +5,8 @@ from stock_screener.evaluation.domain.data_provider import EvaluationDataProvide
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
 
 EARNINGS_GROWTH_MIN = 0.20
+EARNINGS_GROWTH_MAX = 5.0
+EARNINGS_GROWTH_MIN_LIMIT = -0.95
 TOB_PBR_MAX = 1.0
 TOB_NET_CASH_MIN = 0.30
 DIVIDEND_YIELD_THRESHOLD = 0.03
@@ -45,6 +47,11 @@ class CatalystGate:
         growth = provider.get_earnings_growth_forecast(target.ticker)
         if growth is None:
             return CheckResult("2A-2", CheckStatus.NEEDS_REVIEW, "営業利益予想成長率", "データ取得不可")
+        if growth > EARNINGS_GROWTH_MAX or growth < EARNINGS_GROWTH_MIN_LIMIT:
+            return CheckResult(
+                "2A-2", CheckStatus.NEEDS_REVIEW, "営業利益予想成長率",
+                f"成長率 {growth:.1%} は異常値の可能性(範囲: -95%〜+500%)。データを手動確認してください。",
+            )
         if growth >= EARNINGS_GROWTH_MIN:
             return CheckResult("2A-2", CheckStatus.PASS, "営業利益予想成長率", f"成長率: {growth:.1%}")
         return CheckResult("2A-2", CheckStatus.FAIL, "営業利益予想成長率", f"成長率: {growth:.1%}")
