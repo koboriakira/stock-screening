@@ -1,0 +1,52 @@
+{
+  "tickers": {
+    "5599.T": {
+      "name": "S&J",
+      "fiscal_year_end": "03",
+      "earnings_schedule": [
+        {
+          "quarter": "Q3",
+          "announced_date": "2026-02-12",
+          "next_date": "2026-05-14",
+          "is_confirmed": false
+        }
+      ],
+      "dividend": {
+        "record_date": "2026-03-31",
+        "amount_per_share": null
+      }
+    },
+    "4486.T": {
+      "name": "ユナイトアンドグロウ",
+      "fiscal_year_end": "12",
+      "earnings_schedule": [
+        {
+          "quarter": "FY",
+          "announced_date": "2026-02-13",
+          "next_date": "2026-05-13",
+          "is_confirmed": false
+        }
+      ],
+      "dividend": {
+        "record_date": "2026-12-31",
+        "amount_per_share": null
+      }
+    },
+    "4440.T": {
+      "name": "ヴィッツ",
+      "fiscal_year_end": "08",
+      "earnings_schedule": [
+        {
+          "quarter": "Q1",
+          "announced_date": "2025-12-12",
+          "next_date": "2026-04-09",
+          "is_confirmed": false
+        }
+      ],
+      "dividend": {
+        "record_date": null,
+        "amount_per_share": null
+      }
+    }
+  }
+}
