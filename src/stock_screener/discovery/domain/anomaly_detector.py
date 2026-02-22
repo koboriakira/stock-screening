@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from stock_screener.discovery.domain.diff_report import ScreeningResultSnapshot
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
-from stock_screener.shared.config import ANOMALY_DOMAIN_RULES, ANOMALY_IQR_MULTIPLIER
+from stock_screener.shared.config import (
+    ANOMALY_DOMAIN_RULES,
+    ANOMALY_IQR_MULTIPLIER,
+    ANOMALY_SCORE_CHANGE_THRESHOLD,
+)
 
 _IQR_TARGET_FIELDS = ("per", "pbr", "roe", "operating_margin", "net_cash_ratio", "high_52w_discount")
 _MIN_IQR_SAMPLES = 4
@@ -101,6 +106,43 @@ class AnomalyDetector:
                     ),
                 )
         return flags
+
+    def check_score_changes(
+        self,
+        current_scores: dict[str, float],
+        previous: ScreeningResultSnapshot | None,
+    ) -> dict[str, list[AnomalyFlag]]:
+        """Detect significant score changes compared to previous screening.
+
+        Args:
+            current_scores: Mapping of ticker symbol to current total score.
+            previous: Previous screening snapshot, or None if unavailable.
+
+        Returns:
+            Mapping of ticker to list of AnomalyFlag for significant changes.
+        """
+        if previous is None:
+            return {}
+
+        prev_scores = {c.ticker: c.score_total for c in previous.candidates}
+        result: dict[str, list[AnomalyFlag]] = {}
+
+        for ticker, current_score in current_scores.items():
+            prev_score = prev_scores.get(ticker)
+            if prev_score is None:
+                continue
+            delta = current_score - prev_score
+            if abs(delta) >= ANOMALY_SCORE_CHANGE_THRESHOLD:
+                sign = "+" if delta > 0 else ""
+                result[ticker] = [
+                    AnomalyFlag(
+                        field="score_total",
+                        value=current_score,
+                        rule="score_change",
+                        detail=f"score {prev_score:.1f} -> {current_score:.1f} ({sign}{delta:.1f})",
+                    ),
+                ]
+        return result
 
 
 def _percentile(sorted_values: list[float], p: float) -> float:

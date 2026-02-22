@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from stock_screener.discovery.domain.anomaly_detector import AnomalyDetector, AnomalyFlag
+from stock_screener.discovery.domain.diff_report import CandidateSnapshot, ScreeningResultSnapshot
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
 
 
@@ -228,3 +231,98 @@ class TestIqrOutlierDetection:
         flags = detector.check_iqr_outliers(target, snapshots)
         pbr_flags = [f for f in flags if f.field == "pbr"]
         assert len(pbr_flags) == 1
+
+
+def _make_prev_snapshot(candidates: list[tuple[str, str, float]]) -> ScreeningResultSnapshot:
+    """Create a previous ScreeningResultSnapshot from (ticker, name, score) tuples."""
+    snaps = [
+        CandidateSnapshot(
+            ticker=t, name=n, score_total=s,
+            score_value=s * 0.4, score_quality=s * 0.3, score_momentum=s * 0.3,
+            rank=i + 1,
+        )
+        for i, (t, n, s) in enumerate(candidates)
+    ]
+    return ScreeningResultSnapshot(
+        execution_date=datetime(2026, 2, 21, tzinfo=UTC),
+        universe_size=100,
+        hard_filter_passed=80,
+        soft_filter_passed=60,
+        candidates=snaps,
+    )
+
+
+class TestScoreChangeDetection:
+    """Tests for score change detection (Rule 3)."""
+
+    def test_no_previous_snapshot_no_flags(self) -> None:
+        """With no previous snapshot, no flags should be generated."""
+        detector = AnomalyDetector()
+        result = detector.check_score_changes(
+            {"1234.T": 80.0, "5678.T": 70.0},
+            previous=None,
+        )
+        assert result == {}
+
+    def test_no_change_no_flags(self) -> None:
+        """Stable scores should produce no flags."""
+        prev = _make_prev_snapshot([("1234.T", "TestCo", 80.0)])
+        detector = AnomalyDetector()
+        result = detector.check_score_changes(
+            {"1234.T": 80.0},
+            previous=prev,
+        )
+        assert result == {}
+
+    def test_small_change_no_flags(self) -> None:
+        """Score changes below threshold should not be flagged."""
+        prev = _make_prev_snapshot([("1234.T", "TestCo", 80.0)])
+        detector = AnomalyDetector()
+        result = detector.check_score_changes(
+            {"1234.T": 85.0},
+            previous=prev,
+        )
+        assert result == {}
+
+    def test_large_increase_flagged(self) -> None:
+        """Score increase >= 20 points should be flagged."""
+        prev = _make_prev_snapshot([("1234.T", "TestCo", 50.0)])
+        detector = AnomalyDetector()
+        result = detector.check_score_changes(
+            {"1234.T": 80.0},
+            previous=prev,
+        )
+        assert "1234.T" in result
+        assert len(result["1234.T"]) == 1
+        assert result["1234.T"][0].rule == "score_change"
+
+    def test_large_decrease_flagged(self) -> None:
+        """Score decrease >= 20 points should be flagged."""
+        prev = _make_prev_snapshot([("1234.T", "TestCo", 80.0)])
+        detector = AnomalyDetector()
+        result = detector.check_score_changes(
+            {"1234.T": 55.0},
+            previous=prev,
+        )
+        assert "1234.T" in result
+        assert len(result["1234.T"]) == 1
+
+    def test_new_ticker_not_flagged(self) -> None:
+        """New tickers not in previous snapshot should not be flagged."""
+        prev = _make_prev_snapshot([("1234.T", "TestCo", 80.0)])
+        detector = AnomalyDetector()
+        result = detector.check_score_changes(
+            {"9999.T": 50.0},
+            previous=prev,
+        )
+        assert result == {}
+
+    def test_boundary_not_flagged(self) -> None:
+        """Score change exactly at threshold (19.9) should not be flagged."""
+        prev = _make_prev_snapshot([("1234.T", "TestCo", 50.0)])
+        detector = AnomalyDetector()
+        result = detector.check_score_changes(
+            {"1234.T": 69.9},
+            previous=prev,
+        )
+        assert result == {}
