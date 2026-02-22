@@ -5,7 +5,7 @@ from pathlib import Path
 
 from stock_screener.timing.domain.calendar_schedule import CalendarData
 
-DEFAULT_PATH = Path(__file__).resolve().parents[3] / "data" / "calendar.json"
+DEFAULT_PATH = Path(__file__).resolve().parents[4] / "data" / "calendar.json"
 
 
 class CalendarRepository:

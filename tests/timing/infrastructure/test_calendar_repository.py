@@ -4,7 +4,10 @@ from stock_screener.timing.domain.calendar_schedule import (
     EarningsScheduleEntry,
     TickerCalendar,
 )
-from stock_screener.timing.infrastructure.calendar_repository import CalendarRepository
+from stock_screener.timing.infrastructure.calendar_repository import (
+    DEFAULT_PATH,
+    CalendarRepository,
+)
 
 
 def _make_sample_calendar() -> CalendarData:
@@ -51,3 +54,11 @@ class TestCalendarRepository:
 
         loaded = repo.load()
         assert len(loaded.tickers) == 1
+
+    def test_default_path_points_to_project_data_dir(self):
+        """DEFAULT_PATH がプロジェクトルートの data/calendar.json を指すこと"""
+        assert DEFAULT_PATH.name == "calendar.json"
+        assert DEFAULT_PATH.parent.name == "data"
+        # data/ の親がプロジェクトルート(pyproject.toml がある)
+        project_root = DEFAULT_PATH.parent.parent
+        assert (project_root / "pyproject.toml").exists()
