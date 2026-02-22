@@ -57,6 +57,10 @@ def main() -> None:
     diff_parser = subparsers.add_parser("diff", help="前回との差分レポート")
     diff_parser.add_argument("--top", type=int, default=20, help="上位N銘柄で比較 (default: 20)")
 
+    timing_parser = subparsers.add_parser("timing", help="タイミング&サイジング判定")
+    timing_parser.add_argument("--input", type=str, required=True, help="評価結果CSV")
+    timing_parser.add_argument("--output-dir", type=str, default=None, help="オーダーシート出力先ディレクトリ")
+
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -69,6 +73,8 @@ def main() -> None:
             _run_evaluate(args)
         elif args.command == "diff":
             _run_diff(args)
+        elif args.command == "timing":
+            _run_timing(args)
     except FileNotFoundError as e:
         logger.error("ファイルが見つかりません: %s", e)
         raise SystemExit(1) from e
@@ -542,3 +548,16 @@ def _write_csv(result: ScreeningResult, path: Path) -> None:
                     "screening_date": screening_date,
                 },
             )
+
+
+def _run_timing(args: argparse.Namespace) -> None:
+    """timing サブコマンド: タイミング&サイジング判定を実行する。"""
+    from stock_screener.timing.service import TimingService  # noqa: PLC0415
+
+    logger.info("タイミング判定を開始: %s", args.input)
+    service = TimingService()
+    text = service.execute(
+        eval_csv_path=args.input,
+        output_dir=args.output_dir,
+    )
+    print(text)
