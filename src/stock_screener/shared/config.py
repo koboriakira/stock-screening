@@ -2,7 +2,19 @@ HARD_FILTERS = {
     "market_cap_min": 5_000_000_000,
     "market_cap_max": 50_000_000_000,
     "avg_trading_value_min": 5_000_000,
-    "excluded_sectors": ["医薬品", "不動産業"],
+    "excluded_sectors": [
+        "医薬品",
+        "不動産業",
+        "銀行業",
+        "証券、商品先物取引業",
+        "保険業",
+    ],
+    "excluded_categories": [
+        "ETF",
+        "REIT",
+        "ETN",
+        "インフラファンド",
+    ],
 }
 
 SOFT_FILTERS = {
@@ -16,6 +28,12 @@ SCORING_WEIGHTS = {
     "quality": 0.3,
     "momentum": 0.3,
 }
+
+SCORING_MODE = "hybrid"  # "absolute" | "percentile" | "hybrid"
+HYBRID_BASE_RATIO = 0.4  # 基礎点の比率（0.0〜1.0）
+
+MISSING_DATA_POLICY = "penalty"  # "penalty" | "skip" | "exclude"
+MISSING_DATA_EXCLUDE_THRESHOLD = 0.30  # exclude方式の閾値
 
 TURNAROUND_BONUS = 10
 
