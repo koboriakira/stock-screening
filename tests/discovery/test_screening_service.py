@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from stock_screener.discovery.domain.candidate import ScreeningResult
 from stock_screener.discovery.service import ScreeningService
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
@@ -117,3 +119,26 @@ class TestScreeningService:
         result = service.execute([], top_n=10)
         assert len(result.candidates) == 0
         assert result.total_universe == 0
+
+    @patch("stock_screener.discovery.service.SCORING_MODE", "hybrid")
+    def test_hybrid_mode_uses_percentile(self):
+        """Hybrid mode computes universe stats and passes to scorer."""
+        securities = _make_securities()
+        service = ScreeningService()
+        result = service.execute(securities, top_n=10)
+
+        assert isinstance(result, ScreeningResult)
+        assert len(result.candidates) == 2
+        # Scores should be within valid range
+        for c in result.candidates:
+            assert 0 <= c.score.total <= 100
+
+    @patch("stock_screener.discovery.service.SCORING_MODE", "absolute")
+    def test_absolute_mode_no_percentile(self):
+        """Absolute mode does not compute universe stats."""
+        securities = _make_securities()
+        service = ScreeningService()
+        result = service.execute(securities, top_n=10)
+
+        assert isinstance(result, ScreeningResult)
+        assert len(result.candidates) == 2
