@@ -319,8 +319,12 @@ def _run_evaluate(args: argparse.Namespace) -> None:
     _print_evaluation(reports)
 
     if args.output:
-        _write_evaluation_csv(reports, Path(args.output))
-        logger.info("評価結果CSV出力: %s", args.output)
+        output_path = Path(args.output)
+        _write_evaluation_csv(reports, output_path)
+        logger.info("評価結果CSV出力: %s", output_path)
+        detail_path = output_path.with_name(f"{output_path.stem}_detail{output_path.suffix}")
+        _write_evaluation_detail_csv(reports, detail_path)
+        logger.info("評価詳細CSV出力: %s", detail_path)
 
 
 def _run_diff(args: argparse.Namespace) -> None:
@@ -421,6 +425,51 @@ def _write_evaluation_csv(reports: list[EvaluationReport], path: Path) -> None:
                     "score_total": r.target.score_total,
                 },
             )
+
+
+_DETAIL_CSV_FIELDNAMES = [
+    "rank",
+    "ticker",
+    "company_name",
+    "sector",
+    "verdict",
+    "score_total",
+    "gate",
+    "check_id",
+    "check_status",
+    "check_description",
+    "check_detail",
+]
+
+
+def _write_evaluation_detail_csv(reports: list[EvaluationReport], path: Path) -> None:
+    """評価結果を縦展開(1行1チェック)の詳細CSVファイルに出力する。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_DETAIL_CSV_FIELDNAMES)
+        writer.writeheader()
+        for r in reports:
+            base = {
+                "rank": r.target.discovery_rank,
+                "ticker": r.target.ticker.symbol,
+                "company_name": r.target.company_name,
+                "sector": r.target.sector,
+                "verdict": r.verdict.value,
+                "score_total": r.target.score_total,
+            }
+            for gate_result in [r.gate1, r.gate2, r.gate3]:
+                gate_label = gate_result.gate_name.split(":")[0].strip()
+                for c in gate_result.checks:
+                    writer.writerow(
+                        {
+                            **base,
+                            "gate": gate_label,
+                            "check_id": c.check_id,
+                            "check_status": c.status.value,
+                            "check_description": c.description,
+                            "check_detail": c.detail or "",
+                        },
+                    )
 
 
 _CSV_FIELDNAMES = [

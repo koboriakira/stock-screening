@@ -101,3 +101,83 @@ class TestCliEvaluate:
         assert len(rows) == 2
         assert "verdict" in rows[0]
         assert "ticker" in rows[0]
+
+    def test_evaluate_output_detail_csv(self, tmp_path, capsys):
+        """--output 指定時に _detail サフィックス付きの詳細CSVも生成される。"""
+        csv_path = _make_screen_csv(tmp_path)
+        output_path = tmp_path / "eval.csv"
+        detail_path = tmp_path / "eval_detail.csv"
+        with (
+            patch("sys.argv", [
+                "stock-screener", "evaluate", "--input", str(csv_path), "--output", str(output_path),
+            ]),
+            _patch_provider(),
+        ):
+            main()
+        assert detail_path.exists()
+
+    def test_detail_csv_has_expected_columns(self, tmp_path, capsys):
+        """詳細CSVに必要なカラムが全て含まれている。"""
+        csv_path = _make_screen_csv(tmp_path)
+        output_path = tmp_path / "eval.csv"
+        detail_path = tmp_path / "eval_detail.csv"
+        with (
+            patch("sys.argv", [
+                "stock-screener", "evaluate", "--input", str(csv_path), "--output", str(output_path),
+            ]),
+            _patch_provider(),
+        ):
+            main()
+        with detail_path.open() as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        expected_cols = {
+            "rank", "ticker", "company_name", "sector", "verdict", "score_total",
+            "gate", "check_id", "check_status", "check_description", "check_detail",
+        }
+        assert expected_cols == set(rows[0].keys())
+
+    def test_detail_csv_has_all_checks_per_stock(self, tmp_path, capsys):
+        """詳細CSVが銘柄数 x チェック項目数の行数を持つ(縦展開)。"""
+        csv_path = _make_screen_csv(tmp_path)
+        output_path = tmp_path / "eval.csv"
+        detail_path = tmp_path / "eval_detail.csv"
+        with (
+            patch("sys.argv", [
+                "stock-screener", "evaluate", "--input", str(csv_path), "--output", str(output_path),
+            ]),
+            _patch_provider(),
+        ):
+            main()
+        with detail_path.open() as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        # 2銘柄 x 18チェック = 36行
+        assert len(rows) == 36
+        # 各銘柄のcheck_idが18個ずつ
+        stock_a_rows = [r for r in rows if r["ticker"] == "1001.T"]
+        stock_b_rows = [r for r in rows if r["ticker"] == "1002.T"]
+        assert len(stock_a_rows) == 18
+        assert len(stock_b_rows) == 18
+
+    def test_detail_csv_contains_gate_info(self, tmp_path, capsys):
+        """詳細CSVの各行にGate情報が含まれている。"""
+        csv_path = _make_screen_csv(tmp_path)
+        output_path = tmp_path / "eval.csv"
+        detail_path = tmp_path / "eval_detail.csv"
+        with (
+            patch("sys.argv", [
+                "stock-screener", "evaluate", "--input", str(csv_path), "--output", str(output_path),
+            ]),
+            _patch_provider(),
+        ):
+            main()
+        with detail_path.open() as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        gates_in_csv = {r["gate"] for r in rows}
+        assert "Gate1" in gates_in_csv or any("Gate1" in g for g in gates_in_csv)
+        check_ids_in_csv = {r["check_id"] for r in rows}
+        assert "1-1" in check_ids_in_csv
+        assert "2A-2" in check_ids_in_csv
+        assert "3-2" in check_ids_in_csv
