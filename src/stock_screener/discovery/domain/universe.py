@@ -23,6 +23,7 @@ class Universe:
                 ticker=Ticker(item["ticker"]),
                 company_name=item["company_name"],
                 sector=item["sector"],
+                market=item.get("market", ""),
             )
             for item in jpx_data
         ]

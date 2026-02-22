@@ -7,6 +7,7 @@ from stock_screener.shared.types import Ticker
 def _make_security(
     ticker: str = "1234",
     sector: str = "電気機器",
+    market: str = "",
     market_cap: float | None = 10_000_000_000,
     avg_trading_value: float | None = 50_000_000,
 ) -> Security:
@@ -14,6 +15,7 @@ def _make_security(
         ticker=Ticker(ticker),
         company_name="テスト株式会社",
         sector=sector,
+        market=market,
         financial_snapshot=FinancialSnapshot(
             market_cap=market_cap,
             avg_trading_value=avg_trading_value,
@@ -72,12 +74,38 @@ class TestHardFilter:
         result = HardFilter().apply(securities)
         assert len(result) == 0
 
+    def test_excludes_etf_category(self):
+        securities = [_make_security(market="ETF・ETN")]
+        result = HardFilter().apply(securities)
+        assert len(result) == 0
+
+    def test_excludes_reit_category(self):
+        securities = [_make_security(market="REIT・ベンチャーファンド・カントリーファンド・インフラファンド")]
+        result = HardFilter().apply(securities)
+        assert len(result) == 0
+
+    def test_excludes_infra_fund_category(self):
+        securities = [_make_security(market="インフラファンド")]
+        result = HardFilter().apply(securities)
+        assert len(result) == 0
+
+    def test_passes_normal_market_category(self):
+        securities = [_make_security(market="プライム")]
+        result = HardFilter().apply(securities)
+        assert len(result) == 1
+
+    def test_passes_empty_market(self):
+        securities = [_make_security(market="")]
+        result = HardFilter().apply(securities)
+        assert len(result) == 1
+
     def test_mixed_securities(self):
         securities = [
             _make_security(ticker="1001"),  # pass
             _make_security(ticker="1002", market_cap=1_000_000_000),  # fail: too small
             _make_security(ticker="1003", sector="医薬品"),  # fail: pharma
             _make_security(ticker="1004"),  # pass
+            _make_security(ticker="1005", market="ETF・ETN"),  # fail: ETF
         ]
         result = HardFilter().apply(securities)
         assert len(result) == 2

@@ -8,12 +8,14 @@ from stock_screener.shared.types import Ticker
 
 @dataclass
 class Security:
-    """証券銘柄を表すドメインモデル。
+    """Security domain model.
 
-    ティッカー、企業名、セクター、および財務スナップショットを保持する。
-    financial_snapshot は後から設定されるため、ミュータブルなフィールドとしている。
+    Holds ticker, company name, sector, market category, and financial snapshot.
+    financial_snapshot is mutable as it is populated after construction.
     """
+
     ticker: Ticker
     company_name: str
     sector: str
+    market: str = ""
     financial_snapshot: FinancialSnapshot = field(default_factory=FinancialSnapshot)
