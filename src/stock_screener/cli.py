@@ -138,20 +138,56 @@ def _format_duration(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def _fmt_oku(market_cap: float | None) -> str:
+    """Format market cap in oku-yen."""
+    if market_cap is None:
+        return "-"
+    return f"{market_cap / 100_000_000:.0f}"
+
+
+def _fmt_pct(value: float | None) -> str:
+    """Format a ratio as percentage."""
+    if value is None:
+        return "-"
+    return f"{value * 100:.1f}"
+
+
+def _fmt_f(value: float | None) -> str:
+    """Format float, '-' for None."""
+    if value is None:
+        return "-"
+    return f"{value:.1f}"
+
+
 def _print_result(result: ScreeningResult) -> None:
-    """スクリーニング結果をターミナルに表形式で出力する。"""
-    print(f"\n{'='*80}")
-    print(f"スクリーニング結果 ({result.timestamp.strftime('%Y-%m-%d %H:%M')} UTC)")
-    print(f"ユニバース: {result.total_universe} → ハードフィルタ後: {result.after_hard_filter}"
-          f" → ソフトフィルタ後: {result.after_soft_filter}")
-    print(f"{'='*80}")
-    print(f"{'順位':>4} {'ティッカー':<10} {'銘柄名':<20} {'総合':>6} {'割安':>6} {'質':>6} {'変化':>6}")
-    print(f"{'-'*80}")
+    """Print screening results in tabular format with extended columns."""
+    width = 140
+    print(f"\n{'=' * width}")
+    print(f"Screening ({result.timestamp.strftime('%Y-%m-%d %H:%M')} UTC)")
+    print(
+        f"Universe: {result.total_universe} -> Hard: {result.after_hard_filter} -> Soft: {result.after_soft_filter}",
+    )
+    print(f"{'=' * width}")
+    header = (
+        f"{'#':>3} {'Ticker':<10} {'Name':<16} {'Sector':<8}"
+        f" {'MCap':>5} {'Total':>5} {'Val':>5} {'Qual':>5} {'Mom':>5}"
+        f" {'PER':>6} {'PBR':>5} {'DivY':>5} {'NC%':>5}"
+    )
+    print(header)
+    print(f"{'-' * width}")
     for c in result.candidates:
-        print(
-            f"{c.rank:>4} {c.security.ticker.symbol:<10} {c.security.company_name:<20}"
-            f" {c.score.total:>6.1f} {c.score.value:>6.1f} {c.score.quality:>6.1f} {c.score.momentum:>6.1f}",
+        snap = c.security.financial_snapshot
+        sector_short = c.security.sector[:8] if c.security.sector else ""
+        line = (
+            f"{c.rank:>3} {c.security.ticker.symbol:<10} {c.security.company_name:<16}"
+            f" {sector_short:<8}"
+            f" {_fmt_oku(snap.market_cap):>5}"
+            f" {c.score.total:>5.1f} {c.score.value:>5.1f}"
+            f" {c.score.quality:>5.1f} {c.score.momentum:>5.1f}"
+            f" {_fmt_f(snap.per):>6} {_fmt_f(snap.pbr):>5}"
+            f" {_fmt_pct(snap.dividend_yield):>5} {_fmt_pct(snap.net_cash_ratio):>5}"
         )
+        print(line)
     print()
 
 
@@ -194,11 +230,11 @@ def _run_evaluate(args: argparse.Namespace) -> None:
 
 def _print_evaluation(reports: list[EvaluationReport]) -> None:
     """評価結果をターミナルに一覧表と詳細で出力する。"""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("評価結果")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"{'順位':>4} {'ティッカー':<10} {'銘柄名':<20} {'判定':<12} {'Gate1':<8} {'Gate2':<8} {'Gate3':<8}")
-    print(f"{'-'*80}")
+    print(f"{'-' * 80}")
     for r in reports:
         g1 = "PASS" if r.gate1.passed else "FAIL"
         g2 = "PASS" if r.gate2.passed else "FAIL"
@@ -226,50 +262,89 @@ def _write_evaluation_csv(reports: list[EvaluationReport], path: Path) -> None:
         writer = csv.DictWriter(
             f,
             fieldnames=[
-                "rank", "ticker", "company_name", "verdict",
-                "gate1", "gate2", "gate3", "score_total",
+                "rank",
+                "ticker",
+                "company_name",
+                "verdict",
+                "gate1",
+                "gate2",
+                "gate3",
+                "score_total",
             ],
         )
         writer.writeheader()
         for r in reports:
-            writer.writerow({
-                "rank": r.target.discovery_rank,
-                "ticker": r.target.ticker.symbol,
-                "company_name": r.target.company_name,
-                "verdict": r.verdict.value,
-                "gate1": "PASS" if r.gate1.passed else "FAIL",
-                "gate2": "PASS" if r.gate2.passed else "FAIL",
-                "gate3": "PASS" if r.gate3.passed else "FAIL",
-                "score_total": r.target.score_total,
-            })
+            writer.writerow(
+                {
+                    "rank": r.target.discovery_rank,
+                    "ticker": r.target.ticker.symbol,
+                    "company_name": r.target.company_name,
+                    "verdict": r.verdict.value,
+                    "gate1": "PASS" if r.gate1.passed else "FAIL",
+                    "gate2": "PASS" if r.gate2.passed else "FAIL",
+                    "gate3": "PASS" if r.gate3.passed else "FAIL",
+                    "score_total": r.target.score_total,
+                }
+            )
+
+
+_CSV_FIELDNAMES = [
+    "rank",
+    "ticker",
+    "company_name",
+    "sector",
+    "market_cap",
+    "total_score",
+    "value_score",
+    "quality_score",
+    "momentum_score",
+    "per",
+    "pbr",
+    "roe",
+    "operating_margin",
+    "equity_ratio",
+    "revenue_growth",
+    "op_profit_growth",
+    "dividend_yield",
+    "net_cash_ratio",
+    "week52_high_discount",
+    "current_price",
+    "screening_date",
+]
 
 
 def _write_csv(result: ScreeningResult, path: Path) -> None:
-    """スクリーニング結果を CSV ファイルに出力する。"""
+    """Write screening results to CSV with full financial data."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    screening_date = result.timestamp.strftime("%Y-%m-%d")
+
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "rank", "ticker", "company_name", "sector",
-                "total_score", "value_score", "quality_score", "momentum_score",
-                "per", "pbr", "roe", "market_cap",
-            ],
-        )
+        writer = csv.DictWriter(f, fieldnames=_CSV_FIELDNAMES)
         writer.writeheader()
         for c in result.candidates:
             snap = c.security.financial_snapshot
-            writer.writerow({
-                "rank": c.rank,
-                "ticker": c.security.ticker.symbol,
-                "company_name": c.security.company_name,
-                "sector": c.security.sector,
-                "total_score": round(c.score.total, 2),
-                "value_score": round(c.score.value, 2),
-                "quality_score": round(c.score.quality, 2),
-                "momentum_score": round(c.score.momentum, 2),
-                "per": snap.per,
-                "pbr": snap.pbr,
-                "roe": snap.roe,
-                "market_cap": snap.market_cap,
-            })
+            writer.writerow(
+                {
+                    "rank": c.rank,
+                    "ticker": c.security.ticker.symbol,
+                    "company_name": c.security.company_name,
+                    "sector": c.security.sector,
+                    "market_cap": snap.market_cap,
+                    "total_score": round(c.score.total, 2),
+                    "value_score": round(c.score.value, 2),
+                    "quality_score": round(c.score.quality, 2),
+                    "momentum_score": round(c.score.momentum, 2),
+                    "per": snap.per,
+                    "pbr": snap.pbr,
+                    "roe": snap.roe,
+                    "operating_margin": snap.operating_margin,
+                    "equity_ratio": snap.equity_ratio,
+                    "revenue_growth": snap.revenue_growth,
+                    "op_profit_growth": snap.operating_profit_growth,
+                    "dividend_yield": snap.dividend_yield,
+                    "net_cash_ratio": snap.net_cash_ratio,
+                    "week52_high_discount": snap.high_52w_discount,
+                    "current_price": snap.current_price,
+                    "screening_date": screening_date,
+                }
+            )

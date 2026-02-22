@@ -71,6 +71,68 @@ class TestCli:
         assert "ticker" in rows[0]
         assert "total_score" in rows[0]
 
+    def test_csv_contains_extended_columns(self, tmp_path):
+        """P1-01: CSV output includes financial metrics and metadata."""
+        output_path = tmp_path / "result.csv"
+
+        with (
+            patch("stock_screener.cli.JpxStockListFetcher") as mock_jpx_cls,
+            patch("stock_screener.cli.YFinanceSecurityRepository") as mock_repo_cls,
+            patch("sys.argv", ["stock-screener", "screen", "--top", "10", "--output", str(output_path)]),
+        ):
+            mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
+            mock_repo = mock_repo_cls.return_value
+            mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
+
+            main()
+
+        with output_path.open() as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        required_columns = [
+            "ticker",
+            "company_name",
+            "sector",
+            "market_cap",
+            "total_score",
+            "value_score",
+            "quality_score",
+            "momentum_score",
+            "per",
+            "pbr",
+            "roe",
+            "operating_margin",
+            "equity_ratio",
+            "revenue_growth",
+            "op_profit_growth",
+            "dividend_yield",
+            "net_cash_ratio",
+            "week52_high_discount",
+            "current_price",
+            "screening_date",
+        ]
+        for col in required_columns:
+            assert col in rows[0], f"Missing column: {col}"
+
+    def test_cli_output_includes_financial_columns(self, capsys):
+        """P1-01: CLI output includes market cap, dividend yield, NC ratio."""
+        with (
+            patch("stock_screener.cli.JpxStockListFetcher") as mock_jpx_cls,
+            patch("stock_screener.cli.YFinanceSecurityRepository") as mock_repo_cls,
+            patch("sys.argv", ["stock-screener", "screen", "--top", "10"]),
+        ):
+            mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
+            mock_repo = mock_repo_cls.return_value
+            mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
+
+            main()
+
+        captured = capsys.readouterr()
+        # Header should contain extended columns
+        assert "PER" in captured.out
+        assert "PBR" in captured.out
+
     def test_screen_test_mode(self):
         mock_jpx_data = [
             {"ticker": str(i).zfill(4), "company_name": f"会社{i}", "sector": "電気機器", "market": "プライム"}
