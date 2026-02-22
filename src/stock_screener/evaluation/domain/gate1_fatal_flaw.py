@@ -15,6 +15,8 @@ class FatalFlawGate:
         checks = [
             self._check_accounting_fraud(target, provider),
             self._check_going_concern(target, provider),
+            self._check_customer_concentration(target, provider),
+            self._check_ceo_change(target, provider),
             self._check_margin_trading_ratio(target, provider),
         ]
         return GateResult.for_gate1("Gate1: 致命的欠陥", checks)
@@ -37,6 +39,26 @@ class FatalFlawGate:
             check_id="1-2",
             status=status,
             description="継続企業の前提に関する注記がないか",
+        )
+
+    def _check_customer_concentration(
+        self, target: EvaluationTarget, provider: EvaluationDataProvider,
+    ) -> CheckResult:
+        return CheckResult(
+            check_id="1-3",
+            status=CheckStatus.NEEDS_REVIEW,
+            description="売上上位顧客への集中度が高くないか",
+            detail="EDINET未接続のため手動確認が必要",
+        )
+
+    def _check_ceo_change(
+        self, target: EvaluationTarget, provider: EvaluationDataProvider,
+    ) -> CheckResult:
+        return CheckResult(
+            check_id="1-4",
+            status=CheckStatus.NEEDS_REVIEW,
+            description="直近1年以内に代表取締役の交代がないか",
+            detail="EDINET未接続のため手動確認が必要",
         )
 
     def _check_margin_trading_ratio(

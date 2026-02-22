@@ -108,9 +108,31 @@ class TestFatalFlawGate:
         mr_check = next(c for c in result.checks if c.check_id == "1-5")
         assert mr_check.status == CheckStatus.NEEDS_REVIEW
 
-    def test_has_three_checks(self):
+    def test_has_five_checks(self):
         gate = FatalFlawGate()
         result = gate.evaluate(_make_target(), StubProvider())
-        assert len(result.checks) == 3
+        assert len(result.checks) == 5
         check_ids = {c.check_id for c in result.checks}
-        assert check_ids == {"1-1", "1-2", "1-5"}
+        assert check_ids == {"1-1", "1-2", "1-3", "1-4", "1-5"}
+
+    def test_customer_concentration_needs_review(self):
+        """1-3: 顧客集中度チェックは EDINET未接続のため NEEDS_REVIEW を返す。"""
+        gate = FatalFlawGate()
+        result = gate.evaluate(_make_target(), StubProvider())
+        check = next(c for c in result.checks if c.check_id == "1-3")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+        assert "集中度" in check.description
+
+    def test_ceo_change_needs_review(self):
+        """1-4: 代表取締役交代チェックは EDINET未接続のため NEEDS_REVIEW を返す。"""
+        gate = FatalFlawGate()
+        result = gate.evaluate(_make_target(), StubProvider())
+        check = next(c for c in result.checks if c.check_id == "1-4")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+        assert "代表取締役" in check.description
+
+    def test_customer_concentration_and_ceo_change_do_not_fail_gate(self):
+        """1-3, 1-4 が NEEDS_REVIEW でもゲートは通過する。"""
+        gate = FatalFlawGate()
+        result = gate.evaluate(_make_target(), StubProvider())
+        assert result.passed is True
