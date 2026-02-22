@@ -74,3 +74,90 @@ class TestEvaluationTarget:
         assert target.financial_snapshot.per is None
         assert target.financial_snapshot.pbr is None
         assert target.financial_snapshot.market_cap is None
+
+
+class TestFromCsvRowFullMapping:
+    """from_csv_row がCSVの全フィールドを FinancialSnapshot にマッピングするテスト。"""
+
+    def _make_full_row(self) -> dict[str, str]:
+        return {
+            "rank": "1",
+            "ticker": "3916",
+            "company_name": "DIT",
+            "sector": "情報・通信業",
+            "total_score": "84.5",
+            "per": "7.4",
+            "pbr": "0.8",
+            "roe": "0.10",
+            "market_cap": "29800000000",
+            "operating_margin": "0.12",
+            "equity_ratio": "0.716",
+            "revenue_growth": "0.15",
+            "op_profit_growth": "0.25",
+            "dividend_yield": "0.03",
+            "net_cash_ratio": "0.497",
+            "week52_high_discount": "0.15",
+            "current_price": "1500",
+        }
+
+    def test_operating_margin_mapped(self):
+        row = self._make_full_row()
+        target = EvaluationTarget.from_csv_row(row)
+        assert target.financial_snapshot.operating_margin == 0.12
+
+    def test_equity_ratio_mapped(self):
+        row = self._make_full_row()
+        target = EvaluationTarget.from_csv_row(row)
+        assert target.financial_snapshot.equity_ratio == 0.716
+
+    def test_revenue_growth_mapped(self):
+        row = self._make_full_row()
+        target = EvaluationTarget.from_csv_row(row)
+        assert target.financial_snapshot.revenue_growth == 0.15
+
+    def test_op_profit_growth_mapped_to_operating_profit_growth(self):
+        """CSVの op_profit_growth が operating_profit_growth にマッピングされる。"""
+        row = self._make_full_row()
+        target = EvaluationTarget.from_csv_row(row)
+        assert target.financial_snapshot.operating_profit_growth == 0.25
+
+    def test_dividend_yield_mapped(self):
+        row = self._make_full_row()
+        target = EvaluationTarget.from_csv_row(row)
+        assert target.financial_snapshot.dividend_yield == 0.03
+
+    def test_net_cash_ratio_mapped(self):
+        row = self._make_full_row()
+        target = EvaluationTarget.from_csv_row(row)
+        assert target.financial_snapshot.net_cash_ratio == 0.497
+
+    def test_week52_high_discount_mapped_to_high_52w_discount(self):
+        """CSVの week52_high_discount が high_52w_discount にマッピングされる。"""
+        row = self._make_full_row()
+        target = EvaluationTarget.from_csv_row(row)
+        assert target.financial_snapshot.high_52w_discount == 0.15
+
+    def test_current_price_mapped(self):
+        row = self._make_full_row()
+        target = EvaluationTarget.from_csv_row(row)
+        assert target.financial_snapshot.current_price == 1500
+
+    def test_missing_optional_fields_are_none(self):
+        """CSVに含まれないオプションフィールドは None になる。"""
+        row = {
+            "rank": "1",
+            "ticker": "1001",
+            "company_name": "テスト",
+            "sector": "電気機器",
+            "total_score": "50.0",
+            "per": "10.0",
+            "pbr": "1.0",
+            "roe": "0.08",
+            "market_cap": "10000000000",
+        }
+        target = EvaluationTarget.from_csv_row(row)
+        snap = target.financial_snapshot
+        assert snap.operating_margin is None
+        assert snap.equity_ratio is None
+        assert snap.net_cash_ratio is None
+        assert snap.dividend_yield is None
