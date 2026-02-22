@@ -5,6 +5,8 @@ from stock_screener.evaluation.domain.data_provider import EvaluationDataProvide
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
 
 MARGIN_RATIO_MAX = 5.0
+GOING_CONCERN_EQUITY_RATIO_FAIL = 0.10
+GOING_CONCERN_EQUITY_RATIO_WARN = 0.20
 
 
 class FatalFlawGate:
@@ -34,11 +36,33 @@ class FatalFlawGate:
     def _check_going_concern(
         self, target: EvaluationTarget, provider: EvaluationDataProvider,
     ) -> CheckResult:
-        status = provider.check_going_concern(target.ticker)
+        snap = target.financial_snapshot
+        if snap.equity_ratio is None:
+            return CheckResult(
+                check_id="1-2",
+                status=CheckStatus.NEEDS_REVIEW,
+                description="継続企業の前提に関する注記がないか",
+                detail="自己資本比率データなし",
+            )
+        if snap.equity_ratio < GOING_CONCERN_EQUITY_RATIO_FAIL:
+            return CheckResult(
+                check_id="1-2",
+                status=CheckStatus.FAIL,
+                description="継続企業の前提に関する注記がないか",
+                detail=f"自己資本比率={snap.equity_ratio:.1%} 財務危機の可能性",
+            )
+        if snap.equity_ratio < GOING_CONCERN_EQUITY_RATIO_WARN:
+            return CheckResult(
+                check_id="1-2",
+                status=CheckStatus.NEEDS_REVIEW,
+                description="継続企業の前提に関する注記がないか",
+                detail=f"自己資本比率={snap.equity_ratio:.1%} 要注意水準",
+            )
         return CheckResult(
             check_id="1-2",
-            status=status,
+            status=CheckStatus.PASS,
             description="継続企業の前提に関する注記がないか",
+            detail=f"自己資本比率={snap.equity_ratio:.1%}",
         )
 
     def _check_customer_concentration(

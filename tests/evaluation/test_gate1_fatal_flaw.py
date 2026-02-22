@@ -82,7 +82,8 @@ class TestFatalFlawGate:
 
     def test_going_concern_fails(self):
         gate = FatalFlawGate()
-        result = gate.evaluate(_make_target(), GoingConcernProvider())
+        target = _make_target(financial_snapshot=FinancialSnapshot(equity_ratio=0.05))
+        result = gate.evaluate(target, StubProvider())
         assert result.passed is False
         gc_check = next(c for c in result.checks if c.check_id == "1-2")
         assert gc_check.status == CheckStatus.FAIL
@@ -136,3 +137,56 @@ class TestFatalFlawGate:
         gate = FatalFlawGate()
         result = gate.evaluate(_make_target(), StubProvider())
         assert result.passed is True
+
+
+class TestCheck12GoingConcern:
+    """1-2: 継続企業注記チェック — FinancialSnapshot の equity_ratio で3段階判定。"""
+
+    def test_equity_ratio_below_10_fails(self):
+        """自己資本比率 < 10% → FAIL (財務危機)。"""
+        gate = FatalFlawGate()
+        target = _make_target(financial_snapshot=FinancialSnapshot(equity_ratio=0.08))
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "1-2")
+        assert check.status == CheckStatus.FAIL
+        assert result.passed is False
+
+    def test_equity_ratio_between_10_and_20_needs_review(self):
+        """自己資本比率 10%-20% → NEEDS_REVIEW (要注意)。"""
+        gate = FatalFlawGate()
+        target = _make_target(financial_snapshot=FinancialSnapshot(equity_ratio=0.15))
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "1-2")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+
+    def test_equity_ratio_above_20_passes(self):
+        """自己資本比率 >= 20% → PASS。"""
+        gate = FatalFlawGate()
+        target = _make_target(financial_snapshot=FinancialSnapshot(equity_ratio=0.35))
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "1-2")
+        assert check.status == CheckStatus.PASS
+
+    def test_equity_ratio_none_needs_review(self):
+        """自己資本比率データなし → NEEDS_REVIEW。"""
+        gate = FatalFlawGate()
+        target = _make_target(financial_snapshot=FinancialSnapshot())
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "1-2")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+
+    def test_equity_ratio_exactly_10_needs_review(self):
+        """自己資本比率ちょうど10% → NEEDS_REVIEW (要注意、FAILではない)。"""
+        gate = FatalFlawGate()
+        target = _make_target(financial_snapshot=FinancialSnapshot(equity_ratio=0.10))
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "1-2")
+        assert check.status == CheckStatus.NEEDS_REVIEW
+
+    def test_equity_ratio_exactly_20_passes(self):
+        """自己資本比率ちょうど20% → PASS。"""
+        gate = FatalFlawGate()
+        target = _make_target(financial_snapshot=FinancialSnapshot(equity_ratio=0.20))
+        result = gate.evaluate(target, StubProvider())
+        check = next(c for c in result.checks if c.check_id == "1-2")
+        assert check.status == CheckStatus.PASS
