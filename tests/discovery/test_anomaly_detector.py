@@ -26,7 +26,7 @@ def _make_snapshot(**kwargs: float | None) -> FinancialSnapshot:
         "revenue_growth": 0.05,
         "operating_profit_growth": 0.10,
         "equity_ratio": 0.50,
-        "dividend_yield": 0.03,
+        "dividend_yield": 3.0,
         "high_52w_discount": 0.10,
         "net_cash_ratio": 0.30,
         "current_price": 1000.0,
@@ -106,7 +106,7 @@ class TestDomainRuleDetection:
 
     def test_dividend_yield_too_high(self) -> None:
         """Dividend yield above 20% should be flagged."""
-        snapshot = _make_snapshot(dividend_yield=0.25)
+        snapshot = _make_snapshot(dividend_yield=25.0)
         detector = AnomalyDetector()
         flags = detector.check_domain_rules(snapshot)
         assert len(flags) == 1
@@ -130,7 +130,7 @@ class TestDomainRuleDetection:
 
     def test_boundary_values_not_flagged(self) -> None:
         """Values exactly at boundaries should not be flagged."""
-        snapshot = _make_snapshot(pbr=0.05, per=0.1, roe=1.0, dividend_yield=0.20)
+        snapshot = _make_snapshot(pbr=0.05, per=0.1, roe=1.0, dividend_yield=20.0)
         detector = AnomalyDetector()
         flags = detector.check_domain_rules(snapshot)
         assert flags == []

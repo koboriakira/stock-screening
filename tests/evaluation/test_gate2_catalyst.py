@@ -285,7 +285,7 @@ class TestCheck2B3DividendPolicy:
     def test_dividend_yield_3pct_needs_review(self):
         """配当利回り >= 3% の場合は NEEDS_REVIEW(配当方針の確認が必要)。"""
         gate = CatalystGate()
-        target = _make_target(financial_snapshot=FinancialSnapshot(dividend_yield=0.04))
+        target = _make_target(financial_snapshot=FinancialSnapshot(dividend_yield=4.0))
         result = gate.evaluate(target, StubProvider())
         check = next(c for c in result.checks if c.check_id == "2B-3")
         assert check.status == CheckStatus.NEEDS_REVIEW
@@ -294,7 +294,7 @@ class TestCheck2B3DividendPolicy:
     def test_dividend_yield_below_3pct_fails(self):
         """配当利回り < 3% の場合は FAIL。"""
         gate = CatalystGate()
-        target = _make_target(financial_snapshot=FinancialSnapshot(dividend_yield=0.02))
+        target = _make_target(financial_snapshot=FinancialSnapshot(dividend_yield=2.0))
         result = gate.evaluate(target, StubProvider())
         check = next(c for c in result.checks if c.check_id == "2B-3")
         assert check.status == CheckStatus.FAIL
