@@ -15,6 +15,7 @@ from stock_screener.discovery.domain.diff_report import DiffReport, ScreeningRes
 from stock_screener.discovery.domain.universe import Universe
 from stock_screener.discovery.infrastructure.snapshot_repository import FileSnapshotRepository
 from stock_screener.discovery.service import ScreeningService
+from stock_screener.evaluation.domain.check import CheckStatus, GateResult
 from stock_screener.evaluation.domain.evaluation_report import EvaluationReport
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
 from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
@@ -339,6 +340,22 @@ def _run_diff(args: argparse.Namespace) -> None:
     print(diff.format())
 
 
+def _gate_stats_str(gate_result: GateResult) -> str:
+    """GateResult のチェック統計を文字列化する。"""
+    pass_count = sum(1 for c in gate_result.checks if c.status == CheckStatus.PASS)
+    fail_count = sum(1 for c in gate_result.checks if c.status == CheckStatus.FAIL)
+    review_count = sum(1 for c in gate_result.checks if c.status == CheckStatus.NEEDS_REVIEW)
+    total = len(gate_result.checks)
+    parts = []
+    if pass_count:
+        parts.append(f"o{pass_count}")
+    if fail_count:
+        parts.append(f"x{fail_count}")
+    if review_count:
+        parts.append(f"?{review_count}")
+    return f"{'PASS' if gate_result.passed else 'FAIL'} ({'/'.join(parts)}/{total})"
+
+
 def _print_evaluation(reports: list[EvaluationReport]) -> None:
     """評価結果をターミナルに一覧表と詳細で出力する。"""
     print(f"\n{'=' * 80}")
@@ -358,8 +375,15 @@ def _print_evaluation(reports: list[EvaluationReport]) -> None:
     print()
     for r in reports:
         print(f"\n--- {r.target.ticker.symbol} ({r.target.company_name}) ---")
+        print(f"  判定: {r.verdict.value.upper()}")
         for gate_result in [r.gate1, r.gate2, r.gate3]:
-            print(f"  {gate_result.gate_name}:")
+            stats = _gate_stats_str(gate_result)
+            review_count = sum(
+                1 for c in gate_result.checks
+                if c.status.value == "needs_review"
+            )
+            review_note = f" | 要確認: {review_count}件" if review_count else ""
+            print(f"  {gate_result.gate_name}: {stats}{review_note}")
             for c in gate_result.checks:
                 mark = {"pass": "o", "fail": "x", "needs_review": "?"}[c.status.value]
                 detail = f" ({c.detail})" if c.detail else ""

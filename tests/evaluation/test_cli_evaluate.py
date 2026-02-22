@@ -56,6 +56,34 @@ class TestCliEvaluate:
         has_verdict = any(v in captured.out for v in ["INVEST", "REJECT", "WATCHLIST"])
         assert has_verdict
 
+    def test_evaluate_shows_needs_review_count(self, tmp_path, capsys):
+        """評価出力にNEEDS_REVIEW項目数が表示される。"""
+        csv_path = _make_screen_csv(tmp_path)
+        with patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path)]), _patch_provider():
+            main()
+        captured = capsys.readouterr()
+        # 各Gateの要確認数が表示されること
+        assert "?" in captured.out
+
+    def test_evaluate_shows_check_ids(self, tmp_path, capsys):
+        """評価出力に check_id が表示される。"""
+        csv_path = _make_screen_csv(tmp_path)
+        with patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path)]), _patch_provider():
+            main()
+        captured = capsys.readouterr()
+        # Gate1 のチェックIDが表示されること
+        assert "1-1" in captured.out
+        assert "1-2" in captured.out
+
+    def test_evaluate_summary_shows_gate_stats(self, tmp_path, capsys):
+        """一覧表にGateの統計情報(PASS/FAIL/要確認数)が表示される。"""
+        csv_path = _make_screen_csv(tmp_path)
+        with patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path)]), _patch_provider():
+            main()
+        captured = capsys.readouterr()
+        # Gate詳細にNEEDS_REVIEW数が含まれること
+        assert "要確認" in captured.out
+
     def test_evaluate_output_csv(self, tmp_path, capsys):
         csv_path = _make_screen_csv(tmp_path)
         output_path = tmp_path / "eval.csv"
