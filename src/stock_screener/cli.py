@@ -18,9 +18,11 @@ from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
 from stock_screener.evaluation.infrastructure.edinet_eval_provider import EdinetEvaluationDataProvider
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import YFinanceEvaluationDataProvider
 from stock_screener.evaluation.service import EvaluationService
+from stock_screener.market_data.domain.security import Security
 from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
+from stock_screener.shared.config import HARD_FILTERS
 
 logger = logging.getLogger(__name__)
 
@@ -67,43 +69,91 @@ def main() -> None:
 
 
 def _run_screen(args: argparse.Namespace) -> None:
-    """screen サブコマンド: JPX 銘柄のスクリーニングを実行する。"""
-    logger.info("JPX銘柄リストを取得中...")
+    """Screen subcommand: 2-stage JPX stock screening."""
+    logger.info("JPX list fetching...")
     fetcher = JpxStockListFetcher()
     jpx_data = fetcher.fetch()
     universe = Universe.from_jpx_data(jpx_data)
 
     if args.test:
         universe = universe.limit(TEST_MODE_LIMIT)
-        logger.info("テストモード: %d銘柄に制限", TEST_MODE_LIMIT)
+        logger.info("Test mode: %d stocks", TEST_MODE_LIMIT)
 
-    logger.info("ユニバース: %d銘柄", len(universe))
+    logger.info("Universe: %d stocks", len(universe))
 
     cache = None if args.no_cache else FileCache()
     if cache:
-        logger.info("キャッシュ有効 (24時間TTL)")
+        logger.info("Cache enabled (24h TTL)")
     repo = YFinanceSecurityRepository(cache=cache)
-    total = len(universe)
-    logger.info("財務データを取得中...")
-    start_time = time.monotonic()
-    for i, sec in enumerate(universe.securities, 1):
-        snap = repo.get_financial_snapshot(sec.ticker)
-        sec.financial_snapshot = snap
-        _print_progress(i, total, start_time, sec.ticker.symbol)
+
+    # Stage 1: sector/category pre-filter + market cap only
+    stage2_candidates = _stage1_filter(universe.securities, repo)
+
+    # Stage 2: full data fetch for filtered stocks
+    _stage2_fetch(stage2_candidates, repo)
 
     service = ScreeningService()
-    result = service.execute(universe.securities, top_n=args.top)
+    result = service.execute(stage2_candidates, top_n=args.top)
 
     _print_result(result)
 
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
-        output_path = DEFAULT_DATA_DIR / f"{today}.csv"
-
+    output_path = Path(args.output) if args.output else _default_output_path()
     _write_csv(result, output_path)
-    logger.info("CSV出力: %s", output_path)
+    logger.info("CSV: %s", output_path)
+
+
+def _default_output_path() -> Path:
+    """Generate default output path with today's date."""
+    today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
+    return DEFAULT_DATA_DIR / f"{today}.csv"
+
+
+def _stage1_filter(
+    securities: list[Security],
+    repo: YFinanceSecurityRepository,
+) -> list[Security]:
+    """Stage 1: Lightweight pre-filter by sector/category, then market cap."""
+    excluded_sectors = set(HARD_FILTERS["excluded_sectors"])
+    excluded_categories = HARD_FILTERS["excluded_categories"]
+
+    pre_filtered = [
+        sec
+        for sec in securities
+        if sec.sector not in excluded_sectors
+        and not (sec.market and any(cat in sec.market for cat in excluded_categories))
+    ]
+    logger.info("Stage 1 pre-filter: %d -> %d (sector/category)", len(securities), len(pre_filtered))
+
+    mcap_min = HARD_FILTERS["market_cap_min"]
+    mcap_max = HARD_FILTERS["market_cap_max"]
+    total = len(pre_filtered)
+    logger.info("Stage 1: fetching market cap for %d stocks...", total)
+    start_time = time.monotonic()
+
+    passed = []
+    for i, sec in enumerate(pre_filtered, 1):
+        mcap = repo.get_market_cap_only(sec.ticker)
+        _print_progress(i, total, start_time, sec.ticker.symbol)
+        if mcap is not None and mcap_min <= mcap <= mcap_max:
+            passed.append(sec)
+
+    logger.info("Stage 1 done: %d stocks passed market cap filter", len(passed))
+    return passed
+
+
+def _stage2_fetch(
+    candidates: list[Security],
+    repo: YFinanceSecurityRepository,
+) -> None:
+    """Stage 2: Fetch full financial data for filtered stocks."""
+    total = len(candidates)
+    logger.info("Stage 2: fetching full data for %d stocks...", total)
+    start_time = time.monotonic()
+
+    for i, sec in enumerate(candidates, 1):
+        snap = repo.get_financial_snapshot(sec.ticker)
+        sec.financial_snapshot = snap
+        _print_progress(i, total, start_time, sec.ticker.symbol)
 
 
 def _print_progress(

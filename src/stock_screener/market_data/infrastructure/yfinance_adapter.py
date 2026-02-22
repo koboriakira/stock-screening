@@ -30,8 +30,34 @@ class YFinanceSecurityRepository:
         msg = "get_universe should be called via ScreeningService with JPX data"
         raise NotImplementedError(msg)
 
+    def get_market_cap_only(self, ticker: Ticker) -> float | None:
+        """Fetch only market cap for Stage 1 lightweight filtering."""
+        cache_key = f"mcap_{ticker.symbol}"
+        if self._cache is not None:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached.get("market_cap")
+
+        try:
+            yf_ticker = retry_on_rate_limit(
+                lambda: yf.Ticker(ticker.symbol),
+                max_retries=2,
+                base_delay=1.0,
+                default=None,
+            )
+            if yf_ticker is None:
+                return None
+            market_cap = yf_ticker.info.get("marketCap")
+        except (requests.exceptions.RequestException, KeyError, ValueError, TypeError):
+            return None
+
+        if self._cache is not None and market_cap is not None:
+            self._cache.set(cache_key, {"market_cap": market_cap})
+
+        return market_cap
+
     def get_financial_snapshot(self, ticker: Ticker) -> FinancialSnapshot:
-        """指定ティッカーの財務スナップショットを取得する。キャッシュがあれば利用する。"""
+        """Fetch full financial snapshot. Uses cache if available."""
         cache_key = f"snapshot_{ticker.symbol}"
         if self._cache is not None:
             cached = self._cache.get(cache_key)

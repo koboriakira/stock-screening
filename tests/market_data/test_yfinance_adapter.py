@@ -428,3 +428,40 @@ class TestCacheIntegration:
             snapshot = repo.get_financial_snapshot(Ticker("7203"))
 
         assert snapshot.per == 10.0
+
+
+class TestGetMarketCapOnly:
+    """Lightweight market cap fetch for Stage 1."""
+
+    def test_returns_market_cap(self):
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = {"marketCap": 10_000_000_000}
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker):
+            repo = YFinanceSecurityRepository()
+            result = repo.get_market_cap_only(Ticker("7203"))
+
+        assert result == 10_000_000_000
+
+    def test_returns_none_on_error(self):
+        with patch(
+            "stock_screener.market_data.infrastructure.yfinance_adapter.retry_on_rate_limit",
+            return_value=None,
+        ):
+            repo = YFinanceSecurityRepository()
+            result = repo.get_market_cap_only(Ticker("9999"))
+
+        assert result is None
+
+    def test_uses_cache(self, tmp_path):
+        cache = FileCache(cache_dir=tmp_path, ttl_hours=24)
+        mock_yf_ticker = MagicMock()
+        mock_yf_ticker.info = {"marketCap": 10_000_000_000}
+
+        with patch("yfinance.Ticker", return_value=mock_yf_ticker) as mock_cls:
+            repo = YFinanceSecurityRepository(cache=cache)
+            result1 = repo.get_market_cap_only(Ticker("7203"))
+            result2 = repo.get_market_cap_only(Ticker("7203"))
+
+        assert mock_cls.call_count == 1
+        assert result1 == result2

@@ -30,7 +30,7 @@ SCORING_WEIGHTS = {
 }
 
 SCORING_MODE = "hybrid"  # "absolute" | "percentile" | "hybrid"
-HYBRID_BASE_RATIO = 0.4  # 基礎点の比率（0.0〜1.0）
+HYBRID_BASE_RATIO = 0.4  # base score ratio (0.0-1.0)
 
 MISSING_DATA_POLICY = "penalty"  # "penalty" | "skip" | "exclude"
 MISSING_DATA_EXCLUDE_THRESHOLD = 0.30  # exclude方式の閾値

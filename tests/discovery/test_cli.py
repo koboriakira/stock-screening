@@ -42,6 +42,7 @@ class TestCli:
         ):
             mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
             mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
             mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
 
             main()
@@ -59,6 +60,7 @@ class TestCli:
         ):
             mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
             mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
             mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
 
             main()
@@ -82,6 +84,7 @@ class TestCli:
         ):
             mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
             mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
             mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
 
             main()
@@ -124,6 +127,7 @@ class TestCli:
         ):
             mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
             mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
             mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
 
             main()
@@ -146,6 +150,7 @@ class TestCli:
         ):
             mock_jpx_cls.return_value.fetch.return_value = mock_jpx_data
             mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
             mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
 
             main()
