@@ -159,6 +159,38 @@ class TestDomainRuleDetection:
         assert len(flags) == 1
         assert flags[0].field == "equity_ratio"
 
+    def test_op_profit_growth_extreme_high(self) -> None:
+        """営業利益成長率が+500%を超える場合はフラグ。"""
+        snapshot = _make_snapshot(operating_profit_growth=15.0)
+        detector = AnomalyDetector()
+        flags = detector.check_domain_rules(snapshot)
+        growth_flags = [f for f in flags if f.field == "operating_profit_growth"]
+        assert len(growth_flags) == 1
+
+    def test_op_profit_growth_extreme_low(self) -> None:
+        """営業利益成長率が-95%を下回る場合はフラグ。"""
+        snapshot = _make_snapshot(operating_profit_growth=-0.98)
+        detector = AnomalyDetector()
+        flags = detector.check_domain_rules(snapshot)
+        growth_flags = [f for f in flags if f.field == "operating_profit_growth"]
+        assert len(growth_flags) == 1
+
+    def test_op_profit_growth_normal_no_flag(self) -> None:
+        """営業利益成長率が正常範囲ならフラグなし。"""
+        snapshot = _make_snapshot(operating_profit_growth=0.25)
+        detector = AnomalyDetector()
+        flags = detector.check_domain_rules(snapshot)
+        growth_flags = [f for f in flags if f.field == "operating_profit_growth"]
+        assert growth_flags == []
+
+    def test_revenue_growth_extreme_high(self) -> None:
+        """売上高成長率が+500%を超える場合はフラグ。"""
+        snapshot = _make_snapshot(revenue_growth=6.0)
+        detector = AnomalyDetector()
+        flags = detector.check_domain_rules(snapshot)
+        growth_flags = [f for f in flags if f.field == "revenue_growth"]
+        assert len(growth_flags) == 1
+
 
 class TestIqrOutlierDetection:
     """Tests for IQR-based outlier detection (Rule 1)."""

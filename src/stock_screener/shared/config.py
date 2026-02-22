@@ -48,6 +48,8 @@ ANOMALY_DOMAIN_RULES: dict[str, dict[str, float]] = {
     "equity_ratio": {"min": 0.0, "max": 1.0},
     "dividend_yield": {"min": 0.0, "max": 0.20},
     "net_cash_ratio": {"min": -2.0, "max": 5.0},
+    "operating_profit_growth": {"min": -0.95, "max": 5.0},
+    "revenue_growth": {"min": -0.95, "max": 5.0},
 }
 
 EVALUATION_CONFIG = {
