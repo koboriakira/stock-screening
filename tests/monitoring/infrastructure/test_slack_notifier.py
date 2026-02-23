@@ -1,6 +1,11 @@
+import json
 from datetime import date
+from unittest.mock import MagicMock, patch
 
-from stock_screener.monitoring.infrastructure.slack_notifier import format_message
+from stock_screener.monitoring.infrastructure.slack_notifier import (
+    format_message,
+    send_notification,
+)
 
 
 def _make_exit_result(action: str, reason: str = "") -> dict:
@@ -49,3 +54,60 @@ class TestFormatMessage:
         result = _make_exit_result("hold")
         msg = format_message(result, date(2026, 3, 1))
         assert msg == ""
+
+
+class TestSendNotification:
+    @patch.dict("os.environ", {"SLACK_BOT_TOKEN": ""}, clear=False)
+    def test_returns_false_without_token(self):
+        """SLACK_BOT_TOKEN が空の場合は False を返す"""
+        with patch.dict("os.environ", {"SLACK_BOT_TOKEN": ""}):
+            result = send_notification("test")
+        assert result is False
+
+    @patch("stock_screener.monitoring.infrastructure.slack_notifier.urllib.request.urlopen")
+    @patch.dict("os.environ", {"SLACK_BOT_TOKEN": "xoxb-test-token"}, clear=False)
+    def test_sends_to_chat_post_message(self, mock_urlopen):
+        """chat.postMessage API を呼び出す"""
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = json.dumps({"ok": True}).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        result = send_notification("test message")
+        assert result is True
+
+        # リクエストの検証
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0]
+        assert req.full_url == "https://slack.com/api/chat.postMessage"
+        assert req.get_header("Authorization") == "Bearer xoxb-test-token"
+        assert req.get_header("Content-type") == "application/json; charset=utf-8"
+
+        body = json.loads(req.data.decode("utf-8"))
+        assert body["text"] == "test message"
+        assert body["channel"] == "C04Q3AV4TA5"
+
+    @patch("stock_screener.monitoring.infrastructure.slack_notifier.urllib.request.urlopen")
+    @patch.dict("os.environ", {"SLACK_BOT_TOKEN": "xoxb-test-token"}, clear=False)
+    def test_returns_false_on_api_error(self, mock_urlopen):
+        """API エラー時は False を返す"""
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = json.dumps({"ok": False, "error": "channel_not_found"}).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        result = send_notification("test message")
+        assert result is False
+
+    @patch("stock_screener.monitoring.infrastructure.slack_notifier.urllib.request.urlopen")
+    @patch.dict("os.environ", {"SLACK_BOT_TOKEN": "xoxb-test-token"}, clear=False)
+    def test_returns_false_on_exception(self, mock_urlopen):
+        """例外発生時は False を返す"""
+        mock_urlopen.side_effect = Exception("network error")
+
+        result = send_notification("test message")
+        assert result is False

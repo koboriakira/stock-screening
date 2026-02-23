@@ -8,6 +8,9 @@ from datetime import date
 
 logger = logging.getLogger(__name__)
 
+SLACK_API_URL = "https://slack.com/api/chat.postMessage"
+SLACK_CHANNEL = "C04Q3AV4TA5"
+
 _ACTION_LABELS = {
     "stop_loss": "損切り",
     "target_hit": "利確到達",
@@ -47,26 +50,37 @@ def format_message(exit_result: dict, today: date) -> str:
 
 
 def send_notification(message: str) -> bool:
-    """Slack Webhook に通知を送信する。
+    """Slack Bot Token を使って chat.postMessage API で通知を送信する。
 
-    SLACK_WEBHOOK_URL が未設定の場合は False を返す。
+    SLACK_BOT_TOKEN が未設定の場合は False を返す。
     """
-    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
-    if not webhook_url:
-        logger.warning("SLACK_WEBHOOK_URL is not set, skipping notification")
+    token = os.environ.get("SLACK_BOT_TOKEN", "")
+    if not token:
+        logger.warning("SLACK_BOT_TOKEN is not set, skipping notification")
         return False
 
-    payload = json.dumps({"text": message}).encode("utf-8")
+    payload = json.dumps({
+        "channel": SLACK_CHANNEL,
+        "text": message,
+    }).encode("utf-8")
+
     req = urllib.request.Request(  # noqa: S310
-        webhook_url,
+        SLACK_API_URL,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {token}",
+        },
         method="POST",
     )
 
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
-            return resp.status == 200
+            body = json.loads(resp.read().decode("utf-8"))
+            if body.get("ok"):
+                return True
+            logger.error("Slack API error: %s", body.get("error", "unknown"))
+            return False
     except Exception:
         logger.exception("Slack notification failed")
         return False
