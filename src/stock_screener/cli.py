@@ -74,6 +74,18 @@ def _build_parser() -> argparse.ArgumentParser:
     extension_parser = subparsers.add_parser("record-extension", help="保有期間延長を適用")
     extension_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー")
 
+    wl_add_parser = subparsers.add_parser("watchlist-add", help="ウォッチリストに銘柄を追加")
+    wl_add_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー (例: 5765.T)")
+    wl_add_parser.add_argument("--name", type=str, required=True, help="銘柄名")
+    wl_add_parser.add_argument("--memo", type=str, default="", help="メモ")
+
+    wl_rm_parser = subparsers.add_parser("watchlist-remove", help="ウォッチリストから銘柄を削除")
+    wl_rm_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー")
+
+    subparsers.add_parser("watchlist-list", help="ウォッチリスト一覧を表示")
+
+    subparsers.add_parser("watchlist-check", help="ウォッチリスト銘柄の底打ちシグナルをチェック")
+
     return parser
 
 
@@ -94,6 +106,10 @@ def main() -> None:
         "record-sell": _run_record_sell,
         "record-trailing": _run_record_trailing,
         "record-extension": _run_record_extension,
+        "watchlist-add": _run_watchlist_add,
+        "watchlist-remove": _run_watchlist_remove,
+        "watchlist-list": _run_watchlist_list,
+        "watchlist-check": _run_watchlist_check,
     }
 
     try:
@@ -655,3 +671,78 @@ def _run_record_extension(args: argparse.Namespace) -> None:
     h = updated.find_holding(args.ticker)
     logger.info("保有期間延長: %s (count=%d, max_date=%s)", args.ticker, h.extension_count, h.max_holding_date)
     print(f"保有期間延長: {args.ticker} (回数={h.extension_count}, 新期限={h.max_holding_date})")
+
+
+def _run_watchlist_add(args: argparse.Namespace) -> None:
+    """watchlist-add サブコマンド: ウォッチリストに銘柄を追加する。"""
+    import datetime as _dt  # noqa: PLC0415
+
+    from stock_screener.monitoring.domain.watchlist import WatchlistEntry  # noqa: PLC0415
+    from stock_screener.monitoring.infrastructure.watchlist_repository import WatchlistRepository  # noqa: PLC0415
+
+    repo = WatchlistRepository()
+    wl = repo.load()
+    entry = WatchlistEntry(
+        ticker=args.ticker,
+        name=args.name,
+        added_date=_dt.datetime.now(tz=_dt.UTC).date(),
+        memo=args.memo,
+    )
+    wl.add(entry)
+    repo.save(wl)
+    print(f"ウォッチリストに追加: {args.ticker} ({args.name})")
+
+
+def _run_watchlist_remove(args: argparse.Namespace) -> None:
+    """watchlist-remove サブコマンド: ウォッチリストから銘柄を削除する。"""
+    from stock_screener.monitoring.infrastructure.watchlist_repository import WatchlistRepository  # noqa: PLC0415
+
+    repo = WatchlistRepository()
+    wl = repo.load()
+    wl.remove(args.ticker)
+    repo.save(wl)
+    print(f"ウォッチリストから削除: {args.ticker}")
+
+
+def _run_watchlist_list(args: argparse.Namespace) -> None:  # noqa: ARG001
+    """watchlist-list サブコマンド: ウォッチリスト一覧を表示する。"""
+    from stock_screener.monitoring.infrastructure.watchlist_repository import WatchlistRepository  # noqa: PLC0415
+
+    repo = WatchlistRepository()
+    wl = repo.load()
+    if not wl.entries:
+        print("ウォッチリストは空です")
+        return
+
+    print(f"\nウォッチリスト ({len(wl.entries)} 銘柄)")
+    print(f"{'Ticker':<12} {'Name':<20} {'Added':<12} {'Memo'}")
+    print("-" * 60)
+    for e in wl.entries:
+        print(f"{e.ticker:<12} {e.name:<20} {e.added_date.isoformat():<12} {e.memo}")
+
+
+def _run_watchlist_check(args: argparse.Namespace) -> None:  # noqa: ARG001
+    """watchlist-check サブコマンド: 底打ちシグナルをチェックする。"""
+    from stock_screener.monitoring.watchlist_service import WatchlistMonitoringService  # noqa: PLC0415
+
+    logger.info("ウォッチリスト シグナルチェックを開始")
+    service = WatchlistMonitoringService()
+    results = service.execute()
+
+    if not results:
+        print("ウォッチリストが空か、データ取得に失敗しました")
+        return
+
+    print(f"\nウォッチリスト シグナルチェック ({len(results)} 銘柄)")
+    print(f"{'Ticker':<12} {'Name':<16} {'Score':>5} {'Level':<14} {'RSI':>6} {'BB':>6} {'MACD':>8} {'Vol':>5}")
+    print("-" * 80)
+    for r in results:
+        sig = r["signal"]
+        d = sig.details
+        level_str = sig.level or "-"
+        print(
+            f"{r['ticker']:<12} {r['name']:<16} {sig.score:>3}/{sig.max_score}"
+            f" {level_str:<14} {d.get('rsi', '-'):>6}"
+            f" {d.get('bb_position', '-'):>6} {d.get('macd_histogram', '-'):>8}"
+            f" {d.get('volume_ratio', '-'):>5}",
+        )
