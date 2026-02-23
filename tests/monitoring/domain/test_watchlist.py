@@ -1,6 +1,65 @@
 from datetime import date
 
-from stock_screener.monitoring.domain.watchlist import Watchlist, WatchlistEntry
+import pytest
+
+from stock_screener.monitoring.domain.watchlist import (
+    ScoreRecord,
+    Watchlist,
+    WatchlistEntry,
+    WatchlistParams,
+)
+
+
+class TestWatchlistParams:
+    def test_defaults(self):
+        p = WatchlistParams()
+        assert p.score_threshold == 3
+        assert p.volume_threshold == 1.5
+        assert p.cooldown_days == 3
+
+    def test_custom_values(self):
+        p = WatchlistParams(score_threshold=2, volume_threshold=2.0, cooldown_days=5)
+        assert p.score_threshold == 2
+        assert p.volume_threshold == 2.0
+        assert p.cooldown_days == 5
+
+    def test_to_dict(self):
+        p = WatchlistParams(score_threshold=2)
+        d = p.to_dict()
+        assert d == {"score_threshold": 2, "volume_threshold": 1.5, "cooldown_days": 3}
+
+    def test_from_dict(self):
+        d = {"score_threshold": 4, "volume_threshold": 2.0, "cooldown_days": 7}
+        p = WatchlistParams.from_dict(d)
+        assert p.score_threshold == 4
+        assert p.volume_threshold == 2.0
+        assert p.cooldown_days == 7
+
+    def test_from_dict_partial(self):
+        p = WatchlistParams.from_dict({"cooldown_days": 10})
+        assert p.score_threshold == 3
+        assert p.volume_threshold == 1.5
+        assert p.cooldown_days == 10
+
+    def test_from_dict_empty(self):
+        p = WatchlistParams.from_dict({})
+        assert p == WatchlistParams()
+
+
+class TestScoreRecord:
+    def test_create(self):
+        r = ScoreRecord(date=date(2026, 2, 23), score=3)
+        assert r.date == date(2026, 2, 23)
+        assert r.score == 3
+
+    def test_to_dict(self):
+        r = ScoreRecord(date=date(2026, 2, 23), score=4)
+        assert r.to_dict() == {"date": "2026-02-23", "score": 4}
+
+    def test_from_dict(self):
+        r = ScoreRecord.from_dict({"date": "2026-02-23", "score": 4})
+        assert r.date == date(2026, 2, 23)
+        assert r.score == 4
 
 
 class TestWatchlistEntry:
@@ -24,12 +83,50 @@ class TestWatchlistEntry:
         )
         assert e.memo == ""
 
-    def test_to_dict_roundtrip(self):
+    def test_new_fields_defaults(self):
+        e = WatchlistEntry(
+            ticker="5765.T",
+            name="S&J",
+            added_date=date(2026, 2, 23),
+        )
+        assert e.registered_price is None
+        assert e.last_notified_at is None
+        assert e.params == WatchlistParams()
+        assert e.score_history == []
+
+    def test_create_with_all_fields(self):
+        params = WatchlistParams(score_threshold=2, cooldown_days=5)
+        history = [ScoreRecord(date=date(2026, 2, 22), score=2)]
         e = WatchlistEntry(
             ticker="5765.T",
             name="S&J",
             added_date=date(2026, 2, 23),
             memo="test",
+            registered_price=1500.0,
+            last_notified_at=date(2026, 2, 20),
+            params=params,
+            score_history=history,
+        )
+        assert e.registered_price == 1500.0
+        assert e.last_notified_at == date(2026, 2, 20)
+        assert e.params.score_threshold == 2
+        assert len(e.score_history) == 1
+
+    def test_to_dict_roundtrip(self):
+        params = WatchlistParams(score_threshold=4, volume_threshold=2.0, cooldown_days=7)
+        history = [
+            ScoreRecord(date=date(2026, 2, 22), score=2),
+            ScoreRecord(date=date(2026, 2, 23), score=3),
+        ]
+        e = WatchlistEntry(
+            ticker="5765.T",
+            name="S&J",
+            added_date=date(2026, 2, 23),
+            memo="test",
+            registered_price=1500.0,
+            last_notified_at=date(2026, 2, 20),
+            params=params,
+            score_history=history,
         )
         d = e.to_dict()
         restored = WatchlistEntry.from_dict(d)
@@ -37,8 +134,14 @@ class TestWatchlistEntry:
         assert restored.name == e.name
         assert restored.added_date == e.added_date
         assert restored.memo == e.memo
+        assert restored.registered_price == e.registered_price
+        assert restored.last_notified_at == e.last_notified_at
+        assert restored.params == e.params
+        assert len(restored.score_history) == 2
+        assert restored.score_history[0].score == 2
 
     def test_from_dict_backward_compatible(self):
+        """v1 形式(新フィールドなし)からの読み込み"""
         d = {
             "ticker": "5765.T",
             "name": "S&J",
@@ -46,6 +149,21 @@ class TestWatchlistEntry:
         }
         e = WatchlistEntry.from_dict(d)
         assert e.memo == ""
+        assert e.registered_price is None
+        assert e.last_notified_at is None
+        assert e.params == WatchlistParams()
+        assert e.score_history == []
+
+    def test_to_dict_omits_none_fields(self):
+        e = WatchlistEntry(
+            ticker="5765.T",
+            name="S&J",
+            added_date=date(2026, 2, 23),
+        )
+        d = e.to_dict()
+        assert "registered_price" not in d
+        assert "last_notified_at" not in d
+        assert "score_history" not in d
 
 
 class TestWatchlist:
@@ -67,12 +185,8 @@ class TestWatchlist:
             ticker="5765.T", name="S&J", added_date=date(2026, 2, 23),
         )
         wl.add(entry)
-        try:
+        with pytest.raises(ValueError, match="Already in watchlist"):
             wl.add(entry)
-            msg = "Expected ValueError"
-            raise AssertionError(msg)
-        except ValueError:
-            pass
 
     def test_remove_entry(self):
         wl = Watchlist()
@@ -85,12 +199,8 @@ class TestWatchlist:
 
     def test_remove_nonexistent_raises(self):
         wl = Watchlist()
-        try:
+        with pytest.raises(ValueError, match="Not in watchlist"):
             wl.remove("9999.T")
-            msg = "Expected ValueError"
-            raise AssertionError(msg)
-        except ValueError:
-            pass
 
     def test_find(self):
         wl = Watchlist()
@@ -118,3 +228,30 @@ class TestWatchlist:
         restored = Watchlist.from_dict(d)
         assert len(restored.entries) == 2
         assert restored.find("5765.T") is not None
+
+    def test_update_entry(self):
+        wl = Watchlist()
+        wl.add(WatchlistEntry(
+            ticker="5765.T", name="S&J", added_date=date(2026, 2, 23),
+        ))
+        updated_wl = wl.update_entry("5765.T", registered_price=1500.0, last_notified_at=date(2026, 2, 23))
+        # 元の watchlist は変更されない(frozen entry だが Watchlist はmutable、新エントリで差し替え)
+        found = updated_wl.find("5765.T")
+        assert found is not None
+        assert found.registered_price == 1500.0
+        assert found.last_notified_at == date(2026, 2, 23)
+
+    def test_update_entry_score_history(self):
+        wl = Watchlist()
+        wl.add(WatchlistEntry(
+            ticker="5765.T", name="S&J", added_date=date(2026, 2, 23),
+        ))
+        new_history = [ScoreRecord(date=date(2026, 2, 23), score=3)]
+        updated_wl = wl.update_entry("5765.T", score_history=new_history)
+        found = updated_wl.find("5765.T")
+        assert len(found.score_history) == 1
+
+    def test_update_entry_not_found_raises(self):
+        wl = Watchlist()
+        with pytest.raises(ValueError, match="Not in watchlist"):
+            wl.update_entry("9999.T", registered_price=100.0)
