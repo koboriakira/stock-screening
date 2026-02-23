@@ -78,13 +78,18 @@ def _build_parser() -> argparse.ArgumentParser:
     wl_add_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー (例: 5765.T)")
     wl_add_parser.add_argument("--name", type=str, required=True, help="銘柄名")
     wl_add_parser.add_argument("--memo", type=str, default="", help="メモ")
+    wl_add_parser.add_argument("--score-threshold", type=int, default=None, help="スコア閾値 (デフォルト: 3)")
+    wl_add_parser.add_argument("--volume-threshold", type=float, default=None, help="出来高閾値 (デフォルト: 1.5)")
+    wl_add_parser.add_argument("--cooldown-days", type=int, default=None, help="通知クールダウン日数 (デフォルト: 3)")
 
     wl_rm_parser = subparsers.add_parser("watchlist-remove", help="ウォッチリストから銘柄を削除")
     wl_rm_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー")
 
     subparsers.add_parser("watchlist-list", help="ウォッチリスト一覧を表示")
 
-    subparsers.add_parser("watchlist-check", help="ウォッチリスト銘柄の底打ちシグナルをチェック")
+    wl_check_parser = subparsers.add_parser("watchlist-check", help="ウォッチリスト銘柄の底打ちシグナルをチェック")
+    wl_check_parser.add_argument("--dry-run", action="store_true", help="通知を送信せずに結果のみ表示")
+    wl_check_parser.add_argument("--output", type=str, default=None, help="JSON レポート出力パス")
 
     return parser
 
@@ -675,22 +680,28 @@ def _run_record_extension(args: argparse.Namespace) -> None:
 
 def _run_watchlist_add(args: argparse.Namespace) -> None:
     """watchlist-add サブコマンド: ウォッチリストに銘柄を追加する。"""
-    import datetime as _dt  # noqa: PLC0415
+    from stock_screener.monitoring.domain.watchlist import WatchlistParams  # noqa: PLC0415
+    from stock_screener.monitoring.watchlist_service import WatchlistMonitoringService  # noqa: PLC0415
 
-    from stock_screener.monitoring.domain.watchlist import WatchlistEntry  # noqa: PLC0415
-    from stock_screener.monitoring.infrastructure.watchlist_repository import WatchlistRepository  # noqa: PLC0415
+    service = WatchlistMonitoringService()
+    params_kwargs = {}
+    if args.score_threshold is not None:
+        params_kwargs["score_threshold"] = args.score_threshold
+    if args.volume_threshold is not None:
+        params_kwargs["volume_threshold"] = args.volume_threshold
+    if args.cooldown_days is not None:
+        params_kwargs["cooldown_days"] = args.cooldown_days
 
-    repo = WatchlistRepository()
-    wl = repo.load()
-    entry = WatchlistEntry(
+    params = WatchlistParams(**params_kwargs) if params_kwargs else None
+
+    entry = service.add_entry(
         ticker=args.ticker,
         name=args.name,
-        added_date=_dt.datetime.now(tz=_dt.UTC).date(),
         memo=args.memo,
+        params=params,
     )
-    wl.add(entry)
-    repo.save(wl)
-    print(f"ウォッチリストに追加: {args.ticker} ({args.name})")
+    price_str = f" @ {entry.registered_price:,.0f}" if entry.registered_price else ""
+    print(f"ウォッチリストに追加: {args.ticker} ({args.name}){price_str}")
 
 
 def _run_watchlist_remove(args: argparse.Namespace) -> None:
@@ -715,34 +726,62 @@ def _run_watchlist_list(args: argparse.Namespace) -> None:  # noqa: ARG001
         return
 
     print(f"\nウォッチリスト ({len(wl.entries)} 銘柄)")
-    print(f"{'Ticker':<12} {'Name':<20} {'Added':<12} {'Memo'}")
-    print("-" * 60)
+    print(
+        f"{'Ticker':<12} {'Name':<16} {'Added':<12} {'RegPrice':>8} "
+        f"{'Score':>5} {'CD':>3} {'Memo'}",
+    )
+    print("-" * 80)
     for e in wl.entries:
-        print(f"{e.ticker:<12} {e.name:<20} {e.added_date.isoformat():<12} {e.memo}")
+        reg_price = f"{e.registered_price:,.0f}" if e.registered_price else "-"
+        last_score = str(e.score_history[-1].score) if e.score_history else "-"
+        cd_days = str(e.params.cooldown_days)
+        print(
+            f"{e.ticker:<12} {e.name:<16} {e.added_date.isoformat():<12} {reg_price:>8} "
+            f"{last_score:>5} {cd_days:>3} {e.memo}",
+        )
 
 
-def _run_watchlist_check(args: argparse.Namespace) -> None:  # noqa: ARG001
+def _run_watchlist_check(args: argparse.Namespace) -> None:
     """watchlist-check サブコマンド: 底打ちシグナルをチェックする。"""
     from stock_screener.monitoring.watchlist_service import WatchlistMonitoringService  # noqa: PLC0415
 
     logger.info("ウォッチリスト シグナルチェックを開始")
     service = WatchlistMonitoringService()
-    results = service.execute()
+
+    output_path = Path(args.output) if args.output else None
+    results = service.execute(dry_run=args.dry_run, output_path=output_path)
 
     if not results:
         print("ウォッチリストが空か、データ取得に失敗しました")
         return
 
+    if args.dry_run:
+        print("[dry-run] 通知は送信されません")
+
     print(f"\nウォッチリスト シグナルチェック ({len(results)} 銘柄)")
-    print(f"{'Ticker':<12} {'Name':<16} {'Score':>5} {'Level':<14} {'RSI':>6} {'BB':>6} {'MACD':>8} {'Vol':>5}")
-    print("-" * 80)
+    print(
+        f"{'Ticker':<12} {'Name':<16} {'Score':>5} {'Delta':>5} "
+        f"{'Price':>8} {'Chg%':>6} {'Level':<14} {'CD':>3} {'Notif':>5}",
+    )
+    print("-" * 100)
     for r in results:
         sig = r["signal"]
-        d = sig.details
         level_str = sig.level or "-"
+        delta_str = _fmt_delta(sig.score_delta)
+        price_str = f"{r['current_price']:,.0f}" if r["current_price"] else "-"
+        chg_str = f"{r['price_change_pct'] * 100:+.1f}" if r["price_change_pct"] is not None else "-"
+        notif_str = "o" if r["notified"] else "x"
+        cd_str = str(r["cooldown_remaining_days"])
         print(
-            f"{r['ticker']:<12} {r['name']:<16} {sig.score:>3}/{sig.max_score}"
-            f" {level_str:<14} {d.get('rsi', '-'):>6}"
-            f" {d.get('bb_position', '-'):>6} {d.get('macd_histogram', '-'):>8}"
-            f" {d.get('volume_ratio', '-'):>5}",
+            f"{r['ticker']:<12} {r['name']:<16} {sig.score:>3}/{sig.max_score} {delta_str:>5} "
+            f"{price_str:>8} {chg_str:>6} {level_str:<14} {cd_str:>3} {notif_str:>5}",
         )
+
+    if output_path:
+        print(f"\nJSON: {output_path}")
+
+
+def _fmt_delta(delta: int | None) -> str:
+    if delta is None:
+        return "-"
+    return f"+{delta}" if delta >= 0 else str(delta)
