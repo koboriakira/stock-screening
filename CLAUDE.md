@@ -67,6 +67,7 @@ StubEvaluationDataProvider           # 全メソッド NEEDS_REVIEW / None
 | 変数名 | 説明 |
 |--------|------|
 | `EDINET_API_KEY` | EDINET API キー。未設定でも動作する（Gate1 チェックが NEEDS_REVIEW になる） |
+| `SLACK_BOT_TOKEN` | Slack Bot Token。未設定の場合は通知をスキップする |
 
 ## 未実装のチェック項目（スタブのまま）
 
