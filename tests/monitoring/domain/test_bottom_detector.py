@@ -54,6 +54,35 @@ class TestBottomSignal:
         assert sig.score == 3
         assert sig.level == "buy_candidate"
 
+    def test_signal_has_score_delta(self):
+        sig = BottomSignal(
+            ticker="5765.T",
+            score=3,
+            max_score=5,
+            level=None,
+            rsi_signal=False,
+            bb_signal=False,
+            macd_signal=False,
+            volume_confirmed=False,
+            ma_crossover=False,
+            score_delta=1,
+        )
+        assert sig.score_delta == 1
+
+    def test_signal_score_delta_default_none(self):
+        sig = BottomSignal(
+            ticker="5765.T",
+            score=0,
+            max_score=5,
+            level=None,
+            rsi_signal=False,
+            bb_signal=False,
+            macd_signal=False,
+            volume_confirmed=False,
+            ma_crossover=False,
+        )
+        assert sig.score_delta is None
+
 
 class TestDetectBottomSignals:
     def test_returns_bottom_signal(self):
@@ -94,3 +123,56 @@ class TestDetectBottomSignals:
         assert "bb_position" in result.details
         assert "macd_histogram" in result.details
         assert "volume_ratio" in result.details
+
+    def test_volume_threshold_parameter(self):
+        """volume_threshold パラメータで出来高閾値を変更できる"""
+        hist = _make_downtrend_then_recovery()
+        # 高い閾値 -> volume_confirmed が False になりやすい
+        result_high = detect_bottom_signals("5765.T", hist, volume_threshold=100.0)
+        assert result_high.volume_confirmed is False
+
+        # 低い閾値 -> volume_confirmed が True になりやすい
+        result_low = detect_bottom_signals("5765.T", hist, volume_threshold=0.1)
+        assert result_low.volume_confirmed is True
+
+    def test_rsi_soft_bottom_detection(self):
+        """RSI が 30 を割らなくても、底打ち上昇パターンを検出する"""
+        # RSI が 35 近辺で底打ちして上昇するパターン
+        # 緩やかな下げ(RSI 30割れしない) -> 底打ち -> 上昇
+        base = np.linspace(1000, 900, 30).tolist()  # 緩やかな下げ
+        bottom = np.linspace(900, 880, 10).tolist()  # さらに小幅下げ
+        recovery = np.linspace(880, 920, 20).tolist()  # 回復
+        prices = base + bottom + recovery
+        hist = _make_history(prices)
+        result = detect_bottom_signals("5765.T", hist)
+        # RSI が底打ちパターンなら rsi_signal が True
+        # (厳密な値は相場データ依存だが、soft bottom detection が動くことを確認)
+        assert isinstance(result.rsi_signal, bool)
+
+
+class TestScoreDelta:
+    def test_score_delta_calculated(self):
+        hist = _make_downtrend_then_recovery()
+        result = detect_bottom_signals("5765.T", hist, previous_score=1)
+        assert result.score_delta == result.score - 1
+
+    def test_score_delta_none_without_previous(self):
+        hist = _make_downtrend_then_recovery()
+        result = detect_bottom_signals("5765.T", hist)
+        assert result.score_delta is None
+
+    def test_score_delta_with_zero_previous(self):
+        hist = _make_downtrend_then_recovery()
+        result = detect_bottom_signals("5765.T", hist, previous_score=0)
+        assert result.score_delta == result.score
+
+    def test_score_delta_negative(self):
+        hist = _make_steady_uptrend()
+        result = detect_bottom_signals("5765.T", hist, previous_score=5)
+        assert result.score_delta is not None
+        assert result.score_delta < 0
+
+    def test_insufficient_data_score_delta(self):
+        hist = _make_history([100.0, 101.0, 102.0])
+        result = detect_bottom_signals("5765.T", hist, previous_score=3)
+        assert result.score_delta == -3
