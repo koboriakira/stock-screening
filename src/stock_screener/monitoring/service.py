@@ -6,8 +6,13 @@ from datetime import date
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
 from stock_screener.evaluation.service import EvaluationService
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
+from stock_screener.monitoring.domain.analysis_alerts import (
+    format_analysis_alert_message,
+    generate_analysis_alerts,
+)
 from stock_screener.monitoring.domain.exit_monitor import evaluate_holding
 from stock_screener.monitoring.domain.trading_day import is_trading_day
+from stock_screener.monitoring.infrastructure.analysis_repository import AnalysisRepository
 from stock_screener.monitoring.infrastructure.report_repository import MonitoringReportRepository
 from stock_screener.monitoring.infrastructure.slack_notifier import format_message, send_notification
 from stock_screener.shared.types import Ticker
@@ -25,10 +30,12 @@ class DailyMonitoringService:
         portfolio_repo: PortfolioRepository | None = None,
         report_repo: MonitoringReportRepository | None = None,
         eval_service: EvaluationService | None = None,
+        analysis_repo: AnalysisRepository | None = None,
     ) -> None:
         self._portfolio_repo = portfolio_repo or PortfolioRepository()
         self._report_repo = report_repo or MonitoringReportRepository()
         self._eval_service = eval_service
+        self._analysis_repo = analysis_repo or AnalysisRepository()
 
     def execute(
         self,
@@ -65,6 +72,7 @@ class DailyMonitoringService:
 
         portfolio = self._portfolio_repo.load()
         results = []
+        analysis_alerts_all: list[dict] = []
         notifications_sent = 0
         reeval_tickers = []
 
@@ -85,12 +93,16 @@ class DailyMonitoringService:
             if msg and send_notification(msg):
                 notifications_sent += 1
 
+            sent = self._check_analysis_alerts(holding.ticker, current_price, today, analysis_alerts_all)
+            notifications_sent += sent
+
         if reeval_tickers and self._eval_service:
             self._run_gate_reevaluation(reeval_tickers)
 
         report_data = {
             "date": today.isoformat(),
             "results": results,
+            "analysis_alerts": analysis_alerts_all,
             "notifications_sent": notifications_sent,
         }
         report_path = self._report_repo.save(report_data, today)
@@ -100,9 +112,30 @@ class DailyMonitoringService:
             "reason": None,
             "date": today.isoformat(),
             "results": results,
+            "analysis_alerts": analysis_alerts_all,
             "notifications_sent": notifications_sent,
             "report_path": report_path,
         }
+
+    def _check_analysis_alerts(
+        self,
+        ticker: str,
+        current_price: float,
+        today: date,
+        alerts_out: list[dict],
+    ) -> int:
+        """分析データに基づくアラートを生成し通知する。通知成功数を返す。"""
+        analysis = self._analysis_repo.load(ticker)
+        if analysis is None:
+            return 0
+        alerts = generate_analysis_alerts(analysis, current_price, today)
+        sent = 0
+        for alert in alerts:
+            alerts_out.append(alert)
+            alert_msg = format_analysis_alert_message(alert)
+            if send_notification(alert_msg):
+                sent += 1
+        return sent
 
     def _run_gate_reevaluation(self, tickers: list[str]) -> None:
         """Gate 再評価を実行する。"""

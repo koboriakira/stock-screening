@@ -649,6 +649,22 @@ def _run_monitor(args: argparse.Namespace) -> None:
         pnl_pct = r.get("unrealized_pnl_pct", 0)
         print(f"  {ticker}: {action} ({pnl_pct:+.1%})")
 
+    analysis_alerts = result.get("analysis_alerts", [])
+    if analysis_alerts:
+        print(f"\n  分析アラート: {len(analysis_alerts)}件")
+        for alert in analysis_alerts:
+            _type = alert["type"]
+            ticker = alert["ticker"]
+            if _type == "support_approach":
+                lvl = alert["level"]
+                print(f"    [サポート接近] {ticker}: {lvl['price']:,.0f} ({lvl['label']})")
+            elif _type == "resistance_approach":
+                lvl = alert["level"]
+                print(f"    [レジスタンス接近] {ticker}: {lvl['price']:,.0f} ({lvl['label']})")
+            elif _type == "key_date_approaching":
+                sev = {"high": "!!!", "medium": "!!", "low": "!"}.get(alert["severity"], "")
+                print(f"    [重要日{sev}] {ticker}: {alert['event']}")
+
 
 def _run_record_buy(args: argparse.Namespace) -> None:
     """record-buy サブコマンド: 購入を記録する。"""
