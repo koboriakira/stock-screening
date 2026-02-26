@@ -81,6 +81,13 @@ def _build_parser() -> argparse.ArgumentParser:
     extension_parser = subparsers.add_parser("record-extension", help="保有期間延長を適用")
     extension_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー")
 
+    sa_save_parser = subparsers.add_parser("save-analysis", help="銘柄分析データを保存")
+    sa_save_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー (例: 4486.T)")
+    sa_save_parser.add_argument("--file", type=str, required=True, help="分析テキストファイル (.md)")
+
+    sa_show_parser = subparsers.add_parser("show-analysis", help="銘柄分析データを表示")
+    sa_show_parser.add_argument("--ticker", type=str, default=None, help="銘柄ティッカー (省略時は全銘柄一覧)")
+
     wl_add_parser = subparsers.add_parser("watchlist-add", help="ウォッチリストに銘柄を追加")
     wl_add_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー (例: 5765.T)")
     wl_add_parser.add_argument("--name", type=str, required=True, help="銘柄名")
@@ -119,6 +126,8 @@ def main() -> None:
         "record-sell": _run_record_sell,
         "record-trailing": _run_record_trailing,
         "record-extension": _run_record_extension,
+        "save-analysis": _run_save_analysis,
+        "show-analysis": _run_show_analysis,
         "watchlist-add": _run_watchlist_add,
         "watchlist-remove": _run_watchlist_remove,
         "watchlist-list": _run_watchlist_list,
@@ -706,6 +715,103 @@ def _run_record_trailing(args: argparse.Namespace) -> None:
     h = updated.find_holding(args.ticker)
     logger.info("トレイリング適用: %s (count=%d, target=%.0f)", args.ticker, h.trailing_count, h.target_price)
     print(f"トレイリング適用: {args.ticker} (回数={h.trailing_count}, 新目標値={h.target_price:.0f})")
+
+
+def _run_save_analysis(args: argparse.Namespace) -> None:
+    """save-analysis サブコマンド: 分析テキストを保存し、構造化JSONを生成する。"""
+    from stock_screener.monitoring.domain.analysis import AnalysisData  # noqa: PLC0415
+    from stock_screener.monitoring.infrastructure.analysis_repository import AnalysisRepository  # noqa: PLC0415
+
+    repo = AnalysisRepository()
+    md_path = Path(args.file)
+    if not md_path.exists():
+        logger.error("ファイルが見つかりません: %s", md_path)
+        raise SystemExit(1)
+
+    md_text = md_path.read_text(encoding="utf-8")
+    saved_md = repo.save_markdown(args.ticker, md_text)
+    print(f"分析テキスト保存: {saved_md}")
+
+    existing = repo.load(args.ticker)
+    if existing is None:
+        today = datetime.now(tz=UTC).date()
+        template = AnalysisData(
+            ticker=args.ticker,
+            updated_at=today,
+            thesis="（要記入）",
+        )
+        saved_json = repo.save(template)
+        print(f"JSON テンプレート生成: {saved_json}")
+        print("  → サポート/レジスタンス、重要日、カタリスト、リスクを編集してください")
+    else:
+        print(f"既存 JSON あり (更新日: {existing.updated_at})")
+        print("  → JSON を直接編集して分析データを更新できます")
+
+
+def _run_show_analysis(args: argparse.Namespace) -> None:
+    """show-analysis サブコマンド: 銘柄分析データを表示する。"""
+    from stock_screener.monitoring.infrastructure.analysis_repository import AnalysisRepository  # noqa: PLC0415
+
+    repo = AnalysisRepository()
+
+    if args.ticker is None:
+        _show_analysis_list(repo)
+    else:
+        analysis = repo.load(args.ticker)
+        if analysis is None:
+            print(f"分析データなし: {args.ticker}")
+        else:
+            _print_analysis_detail(analysis)
+
+
+def _show_analysis_list(repo) -> None:  # noqa: ANN001
+    tickers = repo.list_tickers()
+    if not tickers:
+        print("分析データなし")
+        return
+    print("保存済み分析データ:")
+    for t in tickers:
+        a = repo.load(t)
+        print(f"  {t}: {a.thesis} (更新: {a.updated_at})")
+
+
+def _print_analysis_detail(analysis) -> None:  # noqa: ANN001, C901
+    from stock_screener.monitoring.domain.analysis import KeyDate, KeyDateRange  # noqa: PLC0415
+
+    today = datetime.now(tz=UTC).date()
+    print(f"=== {analysis.ticker} ===")
+    print(f"テーゼ: {analysis.thesis}")
+    print(f"更新日: {analysis.updated_at}")
+
+    if analysis.supports or analysis.resistances:
+        print("\n[プライスレベル]")
+        for s in sorted(analysis.supports, key=lambda x: x.price, reverse=True):
+            print(f"  S {s.price:,.0f}  {s.label}")
+        for r in sorted(analysis.resistances, key=lambda x: x.price):
+            print(f"  R {r.price:,.0f}  {r.label}")
+
+    if analysis.key_dates:
+        print("\n[重要日]")
+        for kd in analysis.key_dates:
+            severity_mark = {"high": "!!!", "medium": "!!", "low": "!"}.get(kd.severity, "")
+            if isinstance(kd, KeyDateRange):
+                in_range = kd.start <= today <= kd.end
+                status = " ← 期間中" if in_range else ""
+                print(f"  {kd.start} 〜 {kd.end}  {kd.event} {severity_mark}{status}")
+            elif isinstance(kd, KeyDate):
+                days_until = (kd.date - today).days
+                status = f" ({days_until}日後)" if days_until >= 0 else " (経過済み)"
+                print(f"  {kd.date}  {kd.event} {severity_mark}{status}")
+
+    if analysis.catalysts:
+        print("\n[カタリスト]")
+        for c in analysis.catalysts:
+            print(f"  {c.id}: {c.description} ({c.timing}) [影響:{c.impact} 確率:{c.probability}]")
+
+    if analysis.risks:
+        print("\n[リスク]")
+        for r in analysis.risks:
+            print(f"  {r.id}: {r.description} ({r.timing}) [影響:{r.impact} 確率:{r.probability}]")
 
 
 def _run_record_extension(args: argparse.Namespace) -> None:
