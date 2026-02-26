@@ -78,6 +78,58 @@ def apply_time_extension(portfolio: Portfolio, ticker: str) -> Portfolio:
     )
 
 
+def record_buy(
+    portfolio: Portfolio,
+    ticker: str,
+    name: str,
+    price: float,
+    shares: int,
+    buy_date: date,
+) -> Portfolio:
+    """購入を記録し、holdings に追加、history に追加、cash_balance を減算する。"""
+    if portfolio.find_holding(ticker) is not None:
+        msg = f"Already holding: {ticker}"
+        raise ValueError(msg)
+
+    cost = shares * price
+    if portfolio.cash_balance < cost:
+        msg = f"Insufficient cash: {portfolio.cash_balance} < {cost}"
+        raise ValueError(msg)
+
+    from stock_screener.timing.domain.exit_rules import (  # noqa: PLC0415
+        calc_max_holding_date,
+        calc_stop_loss,
+        calc_target_price,
+    )
+
+    holding = Holding(
+        ticker=ticker,
+        name=name,
+        shares=shares,
+        entry_price=price,
+        entry_date=buy_date,
+        stop_loss=calc_stop_loss(price),
+        target_price=calc_target_price(price),
+        max_holding_date=calc_max_holding_date(buy_date),
+    )
+
+    record = TradeRecord(
+        action="buy",
+        ticker=ticker,
+        shares=shares,
+        price=price,
+        date=buy_date,
+        reason="manual_entry",
+    )
+
+    return Portfolio(
+        total_capital=portfolio.total_capital,
+        cash_balance=portfolio.cash_balance - cost,
+        holdings=[*list(portfolio.holdings), holding],
+        history=[*list(portfolio.history), record],
+    )
+
+
 def record_sell(
     portfolio: Portfolio,
     ticker: str,

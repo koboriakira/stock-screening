@@ -5,6 +5,7 @@ import pytest
 from stock_screener.monitoring.domain.portfolio_updater import (
     apply_time_extension,
     apply_trailing_stop,
+    record_buy,
     record_sell,
 )
 from stock_screener.timing.domain.portfolio import Holding, Portfolio
@@ -113,3 +114,70 @@ class TestRecordSell:
         portfolio = _make_portfolio()
         with pytest.raises(ValueError, match="Holding not found"):
             record_sell(portfolio, "9999.T", price=1500, sell_date=date(2026, 3, 1), reason="TEST")
+
+
+class TestRecordBuy:
+    def test_buy_adds_holding_and_history(self):
+        """buy: add to holdings, add to history, decrease cash"""
+        portfolio = Portfolio(
+            total_capital=1_000_000,
+            cash_balance=1_000_000,
+        )
+        updated = record_buy(
+            portfolio,
+            ticker="4486.T",
+            name="ユナイトアンドグロウ",
+            price=675,
+            shares=100,
+            buy_date=date(2026, 2, 26),
+        )
+        h = updated.find_holding("4486.T")
+        assert h is not None
+        assert h.ticker == "4486.T"
+        assert h.name == "ユナイトアンドグロウ"
+        assert h.shares == 100
+        assert h.entry_price == 675
+        assert h.entry_date == date(2026, 2, 26)
+        # stop_loss = 675 * (1 - 0.15) = 573.75
+        assert h.stop_loss == 573.75
+        # target_price = 675 * (1 + 0.50) = 1012.5
+        assert h.target_price == 1012.5
+        # max_holding_date = 2026-02-26 + 180 days = 2026-08-25
+        assert h.max_holding_date == date(2026, 2, 26) + timedelta(days=180)
+        # history に buy レコードが追加される
+        assert len(updated.history) == 1
+        assert updated.history[0].action == "buy"
+        assert updated.history[0].ticker == "4486.T"
+        assert updated.history[0].shares == 100
+        assert updated.history[0].price == 675
+        # cash -= shares * price = 100 * 675 = 67,500
+        assert updated.cash_balance == 1_000_000 - 100 * 675
+
+    def test_buy_duplicate_ticker_raises(self):
+        """同一ティッカーが既に保有中の場合はエラー"""
+        portfolio = _make_portfolio()
+        with pytest.raises(ValueError, match="Already holding"):
+            record_buy(
+                portfolio,
+                ticker="5599.T",
+                name="S&J",
+                price=2000,
+                shares=100,
+                buy_date=date(2026, 3, 1),
+            )
+
+    def test_buy_insufficient_cash_raises(self):
+        """現金残高が不足している場合はエラー"""
+        portfolio = Portfolio(
+            total_capital=1_000_000,
+            cash_balance=10_000,
+        )
+        with pytest.raises(ValueError, match="Insufficient cash"):
+            record_buy(
+                portfolio,
+                ticker="4486.T",
+                name="ユナイトアンドグロウ",
+                price=675,
+                shares=100,
+                buy_date=date(2026, 2, 26),
+            )

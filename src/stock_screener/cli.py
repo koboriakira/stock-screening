@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from stock_screener.discovery.domain.anomaly_detector import AnomalyDetector
@@ -63,6 +63,13 @@ def _build_parser() -> argparse.ArgumentParser:
     monitor_parser = subparsers.add_parser("monitor", help="保有銘柄の日次モニタリング")
     monitor_parser.add_argument("--skip-calendar", action="store_true", help="営業日判定をスキップ")
 
+    buy_parser = subparsers.add_parser("record-buy", help="購入を記録")
+    buy_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー (例: 4486.T)")
+    buy_parser.add_argument("--price", type=float, required=True, help="購入価格")
+    buy_parser.add_argument("--shares", type=int, required=True, help="購入株数")
+    buy_parser.add_argument("--date", type=str, required=True, help="購入日 (YYYY-MM-DD)")
+    buy_parser.add_argument("--name", type=str, default=None, help="銘柄名 (未指定時は yfinance から取得)")
+
     sell_parser = subparsers.add_parser("record-sell", help="売却を記録")
     sell_parser.add_argument("--ticker", type=str, required=True, help="銘柄ティッカー")
     sell_parser.add_argument("--price", type=float, required=True, help="売却価格")
@@ -108,6 +115,7 @@ def main() -> None:
         "diff": _run_diff,
         "timing": _run_timing,
         "monitor": _run_monitor,
+        "record-buy": _run_record_buy,
         "record-sell": _run_record_sell,
         "record-trailing": _run_record_trailing,
         "record-extension": _run_record_extension,
@@ -631,6 +639,42 @@ def _run_monitor(args: argparse.Namespace) -> None:
         ticker = r["ticker"]
         pnl_pct = r.get("unrealized_pnl_pct", 0)
         print(f"  {ticker}: {action} ({pnl_pct:+.1%})")
+
+
+def _run_record_buy(args: argparse.Namespace) -> None:
+    """record-buy サブコマンド: 購入を記録する。"""
+    from stock_screener.monitoring.domain.portfolio_updater import record_buy  # noqa: PLC0415
+    from stock_screener.timing.infrastructure.portfolio_repository import PortfolioRepository  # noqa: PLC0415
+
+    repo = PortfolioRepository()
+    portfolio = repo.load()
+
+    buy_date = date.fromisoformat(args.date)
+
+    name = args.name
+    if name is None:
+        import yfinance as yf  # noqa: PLC0415
+
+        logger.info("銘柄名を yfinance から取得中: %s", args.ticker)
+        info = yf.Ticker(args.ticker).info
+        name = info.get("shortName") or info.get("longName") or args.ticker
+
+    updated = record_buy(
+        portfolio,
+        ticker=args.ticker,
+        name=name,
+        price=args.price,
+        shares=args.shares,
+        buy_date=buy_date,
+    )
+    repo.save(updated)
+
+    holding = updated.find_holding(args.ticker)
+    print(f"購入記録完了: {args.ticker} ({name})")
+    print(f"  価格: {args.price:.0f} x {args.shares}株 = {args.price * args.shares:,.0f}円")
+    print(f"  損切り: {holding.stop_loss:,.0f}  利確: {holding.target_price:,.0f}")
+    print(f"  最大保有日: {holding.max_holding_date}")
+    print(f"  残り現金: {updated.cash_balance:,.0f}円")
 
 
 def _run_record_sell(args: argparse.Namespace) -> None:
