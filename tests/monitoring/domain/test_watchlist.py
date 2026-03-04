@@ -61,6 +61,38 @@ class TestScoreRecord:
         assert r.date == date(2026, 2, 23)
         assert r.score == 4
 
+    def test_signals_default_none(self):
+        r = ScoreRecord(date=date(2026, 3, 4), score=2)
+        assert r.signals is None
+
+    def test_with_signals(self):
+        signals = {"rsi": True, "bb": False, "macd": False, "volume": True, "ma": False}
+        r = ScoreRecord(date=date(2026, 3, 4), score=2, signals=signals)
+        assert r.signals == signals
+
+    def test_to_dict_with_signals(self):
+        signals = {"rsi": True, "bb": False, "macd": False, "volume": True, "ma": False}
+        r = ScoreRecord(date=date(2026, 3, 4), score=2, signals=signals)
+        d = r.to_dict()
+        assert d == {"date": "2026-03-04", "score": 2, "signals": signals}
+
+    def test_to_dict_without_signals(self):
+        r = ScoreRecord(date=date(2026, 3, 4), score=2)
+        d = r.to_dict()
+        assert "signals" not in d
+
+    def test_from_dict_with_signals(self):
+        signals = {"rsi": True, "bb": False, "macd": True, "volume": False, "ma": True}
+        d = {"date": "2026-03-04", "score": 3, "signals": signals}
+        r = ScoreRecord.from_dict(d)
+        assert r.signals == signals
+
+    def test_from_dict_backward_compatible(self):
+        """signals フィールドがない旧形式からの読み込み"""
+        d = {"date": "2026-02-23", "score": 4}
+        r = ScoreRecord.from_dict(d)
+        assert r.signals is None
+
 
 class TestWatchlistEntry:
     def test_create_entry(self):

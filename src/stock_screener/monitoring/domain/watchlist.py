@@ -34,18 +34,23 @@ class ScoreRecord:
 
     date: date
     score: int
+    signals: dict[str, bool] | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "date": self.date.isoformat(),
             "score": self.score,
         }
+        if self.signals is not None:
+            d["signals"] = self.signals
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> ScoreRecord:
         return cls(
             date=date.fromisoformat(d["date"]),
             score=d["score"],
+            signals=d.get("signals"),
         )
 
 
