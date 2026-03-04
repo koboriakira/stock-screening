@@ -34,7 +34,7 @@ TEST_MODE_LIMIT = 5
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "stock-screener" / "results"
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     parser = argparse.ArgumentParser(
         prog="stock-screener",
         description="小型バリュー株スクリーニングシステム",
@@ -105,6 +105,10 @@ def _build_parser() -> argparse.ArgumentParser:
     wl_check_parser.add_argument("--dry-run", action="store_true", help="通知を送信せずに結果のみ表示")
     wl_check_parser.add_argument("--output", type=str, default=None, help="JSON レポート出力パス")
 
+    daily_report_parser = subparsers.add_parser("daily-report", help="日次レポートを生成")
+    daily_report_parser.add_argument("--skip-calendar", action="store_true", help="営業日判定をスキップ")
+    daily_report_parser.add_argument("--notify", action="store_true", help="Slack に通知を送信")
+
     return parser
 
 
@@ -132,6 +136,7 @@ def main() -> None:
         "watchlist-remove": _run_watchlist_remove,
         "watchlist-list": _run_watchlist_list,
         "watchlist-check": _run_watchlist_check,
+        "daily-report": _run_daily_report,
     }
 
     try:
@@ -945,6 +950,50 @@ def _run_watchlist_check(args: argparse.Namespace) -> None:
 
     if output_path:
         print(f"\nJSON: {output_path}")
+
+
+def _run_daily_report(args: argparse.Namespace) -> None:
+    """daily-report サブコマンド: 日次レポートを生成し、オプションで Slack に通知する。"""
+    from stock_screener.monitoring.domain.daily_summary import format_daily_summary  # noqa: PLC0415
+    from stock_screener.monitoring.infrastructure.slack_notifier import send_notification  # noqa: PLC0415
+    from stock_screener.monitoring.service import DailyMonitoringService  # noqa: PLC0415
+    from stock_screener.monitoring.watchlist_service import WatchlistMonitoringService  # noqa: PLC0415
+
+    today = datetime.now(tz=UTC).date()
+
+    # 1. 保有銘柄モニタリング
+    logger.info("日次レポート: 保有銘柄モニタリング開始")
+    monitor_service = DailyMonitoringService()
+    monitor_result = monitor_service.execute(
+        today=today,
+        skip_calendar=args.skip_calendar,
+    )
+
+    if monitor_result["skipped"]:
+        print(f"スキップ: {monitor_result['reason']}")
+        return
+
+    # 2. ウォッチリストチェック
+    logger.info("日次レポート: ウォッチリストチェック開始")
+    watchlist_service = WatchlistMonitoringService()
+    watchlist_results = watchlist_service.execute()
+
+    # 3. サマリー生成
+    summary = format_daily_summary(
+        monitor_results=monitor_result["results"],
+        watchlist_results=watchlist_results,
+        today=today,
+        analysis_alerts=monitor_result.get("analysis_alerts", []),
+    )
+
+    print(summary)
+
+    # 4. Slack 通知
+    if args.notify:
+        if send_notification(summary):
+            logger.info("Slack 通知送信完了")
+        else:
+            logger.warning("Slack 通知送信失敗")
 
 
 def _fmt_delta(delta: int | None) -> str:
