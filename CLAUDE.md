@@ -36,6 +36,10 @@ uv run stock-screener show-analysis --ticker 4486.T    # 詳細表示
 
 # 日次モニタリング（exit判定 + 分析アラート）
 uv run stock-screener monitor --skip-calendar
+
+# 日次レポート（monitor + watchlist-check + サマリー生成）
+uv run stock-screener daily-report --skip-calendar
+uv run stock-screener daily-report --skip-calendar --notify  # Slack送信
 ```
 
 ## 開発ルール
