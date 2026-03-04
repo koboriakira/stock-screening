@@ -5,7 +5,9 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
+from stock_screener.monitoring.domain.bottom_detector import BottomSignal
 from stock_screener.monitoring.domain.watchlist import (
+    ScoreRecord,
     Watchlist,
     WatchlistEntry,
     WatchlistParams,
@@ -286,6 +288,104 @@ class TestJsonOutput:
         assert data[0]["ticker"] == "5765.T"
         assert "score" in data[0]
         assert "current_price" in data[0]
+
+
+class TestSignalsSavedInScoreHistory:
+    @patch("stock_screener.monitoring.watchlist_service.yf")
+    def test_signals_saved_in_score_record(self, mock_yf, tmp_path):
+        """チェック後にシグナル状態がスコア履歴に保存される"""
+        repo = WatchlistRepository(base_dir=tmp_path)
+        repo.save(_make_watchlist())
+        service = WatchlistMonitoringService(watchlist_repo=repo)
+
+        mock_ticker = mock_yf.Ticker.return_value
+        mock_ticker.history.return_value = _make_hist_dataframe()
+        mock_ticker.info = {"currentPrice": 800.0}
+
+        service.execute()
+
+        loaded = repo.load()
+        entry = loaded.find("5765.T")
+        assert len(entry.score_history) == 1
+        record = entry.score_history[0]
+        assert record.signals is not None
+        assert set(record.signals.keys()) == {"rsi", "bb", "macd", "volume", "ma"}
+        assert all(isinstance(v, bool) for v in record.signals.values())
+
+    @patch("stock_screener.monitoring.watchlist_service.yf")
+    def test_signals_not_saved_in_dry_run(self, mock_yf, tmp_path):
+        """dry-run ではシグナルも保存されない"""
+        repo = WatchlistRepository(base_dir=tmp_path)
+        repo.save(_make_watchlist())
+        service = WatchlistMonitoringService(watchlist_repo=repo)
+
+        mock_ticker = mock_yf.Ticker.return_value
+        mock_ticker.history.return_value = _make_hist_dataframe()
+        mock_ticker.info = {"currentPrice": 800.0}
+
+        service.execute(dry_run=True)
+
+        loaded = repo.load()
+        entry = loaded.find("5765.T")
+        assert len(entry.score_history) == 0
+
+
+class TestScoreChangeReasons:
+    @patch("stock_screener.monitoring.watchlist_service.yf")
+    def test_score_change_reasons_in_result(self, mock_yf, tmp_path):
+        """result dict に score_change_reasons が含まれる"""
+        repo = WatchlistRepository(base_dir=tmp_path)
+        repo.save(_make_watchlist())
+        service = WatchlistMonitoringService(watchlist_repo=repo)
+
+        mock_ticker = mock_yf.Ticker.return_value
+        mock_ticker.history.return_value = _make_hist_dataframe()
+        mock_ticker.info = {"currentPrice": 800.0}
+
+        results = service.execute()
+        assert "score_change_reasons" in results[0]
+        assert isinstance(results[0]["score_change_reasons"], list)
+
+    @patch("stock_screener.monitoring.watchlist_service.detect_bottom_signals")
+    @patch("stock_screener.monitoring.watchlist_service.yf")
+    def test_score_change_reasons_detects_new_signal(self, mock_yf, mock_detect, tmp_path):
+        """前日にない新しいシグナルが検出されると理由リストに含まれる"""
+        prev_signals = {"rsi": False, "bb": False, "macd": False, "volume": False, "ma": False}
+        repo = WatchlistRepository(base_dir=tmp_path)
+        repo.save(_make_watchlist(
+            score_history=[ScoreRecord(date=date(2026, 3, 3), score=0, signals=prev_signals)],
+        ))
+        service = WatchlistMonitoringService(watchlist_repo=repo)
+
+        mock_ticker = mock_yf.Ticker.return_value
+        mock_ticker.history.return_value = _make_hist_dataframe()
+        mock_ticker.info = {"currentPrice": 800.0}
+
+        mock_detect.return_value = BottomSignal(
+            ticker="5765.T", score=2, max_score=5, level=None,
+            rsi_signal=True, bb_signal=False, macd_signal=True,
+            volume_confirmed=False, ma_crossover=False, details={},
+        )
+
+        results = service.execute()
+        reasons = results[0]["score_change_reasons"]
+        assert "RSI点灯" in reasons
+        assert "MACD点灯" in reasons
+        assert len(reasons) == 2
+
+    @patch("stock_screener.monitoring.watchlist_service.yf")
+    def test_score_change_reasons_empty_without_previous(self, mock_yf, tmp_path):
+        """前日のシグナルがない場合は変動理由は空"""
+        repo = WatchlistRepository(base_dir=tmp_path)
+        repo.save(_make_watchlist())
+        service = WatchlistMonitoringService(watchlist_repo=repo)
+
+        mock_ticker = mock_yf.Ticker.return_value
+        mock_ticker.history.return_value = _make_hist_dataframe()
+        mock_ticker.info = {"currentPrice": 800.0}
+
+        results = service.execute()
+        assert results[0]["score_change_reasons"] == []
 
 
 class TestAddEntry:

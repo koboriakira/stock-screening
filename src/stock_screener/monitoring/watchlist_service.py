@@ -113,9 +113,21 @@ class WatchlistMonitoringService:
                         last_notified_at=today,
                     )
 
+            # シグナル状態を dict に変換
+            current_signals = {
+                "rsi": signal.rsi_signal,
+                "bb": signal.bb_signal,
+                "macd": signal.macd_signal,
+                "volume": signal.volume_confirmed,
+                "ma": signal.ma_crossover,
+            }
+
+            # スコア変動理由の算出
+            score_change_reasons = _calc_score_change_reasons(entry, current_signals)
+
             # スコア履歴の追記
             if not dry_run:
-                new_record = ScoreRecord(date=today, score=signal.score)
+                new_record = ScoreRecord(date=today, score=signal.score, signals=current_signals)
                 new_history = [*entry.score_history, new_record]
                 updated_watchlist = updated_watchlist.update_entry(
                     entry.ticker,
@@ -136,6 +148,7 @@ class WatchlistMonitoringService:
                 "registered_price": entry.registered_price,
                 "price_change_pct": price_change_pct,
                 "cooldown_remaining_days": cooldown_remaining,
+                "score_change_reasons": score_change_reasons,
             })
 
         # 保存
@@ -243,6 +256,36 @@ class WatchlistMonitoringService:
 
         with path.open("w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
+
+
+_SIGNAL_LABELS = {
+    "rsi": "RSI",
+    "bb": "BB",
+    "macd": "MACD",
+    "volume": "出来高",
+    "ma": "MA",
+}
+
+
+def _calc_score_change_reasons(
+    entry: WatchlistEntry,
+    current_signals: dict[str, bool],
+) -> list[str]:
+    """前日のシグナル状態と比較してスコア変動理由を算出する。"""
+    if not entry.score_history:
+        return []
+    prev_signals = entry.score_history[-1].signals
+    if prev_signals is None:
+        return []
+    reasons = []
+    for key, current in current_signals.items():
+        prev = prev_signals.get(key, False)
+        label = _SIGNAL_LABELS.get(key, key)
+        if current and not prev:
+            reasons.append(f"{label}点灯")
+        elif not current and prev:
+            reasons.append(f"{label}消灯")
+    return reasons
 
 
 def _bool_mark(value: bool) -> str:
