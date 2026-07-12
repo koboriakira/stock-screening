@@ -1,6 +1,6 @@
 # 要件転換ドラフト: adapter-stock から呼ばれる株式情報取得ハブ
 
-- status: Draft v0（ユーザーレビュー待ち）
+- status: v1（2026-07-12 未決事項へのユーザー決定を反映）
 - created: 2026-07-12
 - 出典調査: 本リポジトリ全72ファイル棚卸し / グローバル adapter-*/port-* スキル14件の規約抽出 / 利用側ユースケース調査（Issue koboriakira/tasks#40・Vault・Task・skills）
 
@@ -103,14 +103,19 @@
 
 ### 3.4 非スコープ（adapter 規約「成果物なし・不可逆アクション禁止」の適用)
 
-以下は情報取得ではなく「状態の記録・通知・判断」であり、adapter-stock の契約から**除外する**。
+以下は情報取得ではなく「状態の記録・通知・判断」であり、adapter-stock の契約から除外し、**機能ごと廃止する**（2026-07-12 ユーザー決定）。
 
-| 機能 | 現実装 | 扱い（案） |
+| 機能 | 現実装 | 決定 |
 |---|---|---|
-| ポートフォリオ記録（record-buy/sell/trailing/extension） | timing + portfolio.json | リポジトリに残置するが adapter-stock からは呼ばない（将来はドメインスキル or market-watch 側へ移管を検討） |
-| ウォッチリスト永続化・クールダウン管理 | monitoring + watchlist.json | 同上（シグナル計算だけを `signals` として切り出す） |
-| Slack 通知・daily-report | monitoring/slack_notifier | 同上（通知はドメイン側の責務） |
-| 売買判断・オーダーシート | timing | 同上 |
+| ポートフォリオ記録（record-buy/sell/trailing/extension） | timing + portfolio.json | 廃止 |
+| ウォッチリスト永続化・クールダウン管理・watchlist-* コマンド | monitoring + watchlist.json | 廃止（シグナル計算だけを `signals` として存続させる） |
+| Slack 通知・monitor・daily-report | monitoring/slack_notifier ほか | 廃止（通知はドメイン側の責務） |
+| 売買判断・オーダーシート・timing コマンド | timing | 廃止 |
+
+廃止の注意点:
+
+- 既存のローカルデータ（`~/.local/share/stock-screener/` 配下の portfolio.json・watchlist.json・銘柄分析データ・過去レポート）はコード廃止後も**ファイルとして残る**。本システムからの閲覧手段（show-analysis 等）は失われるため、必要な内容は廃止前に確認・退避する
+- cron 登録済みの `scripts/daily-monitoring.sh` があれば解除する（登録有無は実装時に `crontab -l` で確認）
 
 ## 4. adapter-stock SKILL.md 仕様（グローバルスキル側、新設）
 
@@ -155,10 +160,10 @@ allowed-tools: Bash, Read
 
 | Phase | 内容 | 成果物 |
 |---|---|---|
-| A | JSON 出力層の実装: 新コマンド `quote` / `history` / `financials` / `signals` / `universe` / `trading-day`（JSON stdout 既定）+ 既存 `screen` / `evaluate` への `--format json` 追加 + エラー契約 + テスト | 本リポジトリのコード |
-| B | adapter-stock SKILL.md 新設 + 本リポジトリ CLAUDE.md / README の位置づけ書き換え | グローバルスキル + ドキュメント |
-| C | market-watch の ripple-analysis / decision-review の Yahoo WebFetch を adapter-stock 呼び出しへ置換（※market-watch は「プロジェクト完全独立型」の設計判断が Issue #40 に記録されており、これを破るかはユーザー判断） | market-watch 側の SKILL.md 修正 |
-| D | 非スコープ機能（ポートフォリオ記録・通知・daily-report）の最終的な行き先決定（残置 / 廃止 / market-watch 移管） | 別途要件定義 |
+| A | 非スコープ機能の廃止: timing・ポートフォリオ記録・ウォッチリスト永続化・Slack 通知・monitor/daily-report のコード・CLI・テストを削除（先行することで以降の実装対象が縮小する） | 本リポジトリのコード |
+| B | JSON 出力層の実装: 新コマンド `quote` / `history` / `financials` / `signals` / `universe` / `trading-day`（JSON stdout 既定）+ 既存 `screen` / `evaluate` への `--format json` 追加 + エラー契約 + テスト | 本リポジトリのコード |
+| C | adapter-stock SKILL.md 新設 + 本リポジトリ CLAUDE.md / README の位置づけ書き換え | グローバルスキル + ドキュメント |
+| D | market-watch の ripple-analysis / decision-review の Yahoo WebFetch を adapter-stock 呼び出しへ置換（「完全独立型」設計の変更は 2026-07-12 に決定済み。実施時に Issue koboriakira/tasks#40 へ経緯を追記する） | market-watch 側の SKILL.md 修正 |
 
 ## 7. 既知の課題（調査で見つかった負債）
 
@@ -167,9 +172,9 @@ allowed-tools: Bash, Read
 - `tmp:issue/` の旧仕様書2件（watchlist v2 / Layer6 PRD）は実装済み機能の初期設計書。位置づけ転換後に docs/ へ整理 or 削除を判断
 - codetour のコード規模記述が陳腐化（Phase B のドキュメント更新に含める）
 
-## 8. 未決事項（ユーザー判断待ち）
+## 8. 決定事項（2026-07-12 ユーザー回答）
 
-1. **非スコープ機能の扱い**: ポートフォリオ記録・ウォッチリスト通知・daily-report を「残置」「廃止」「market-watch へ移管」のどれにするか（推奨: 当面残置、Phase D で再判断)
-2. **market-watch の独立型設計**: Issue #40 で「グローバル adapter に依存しない」と決めた設計を破り、adapter-stock 依存へ切り替えるか（推奨: 切り替える。取得ロジックの一元化が本転換の主目的のため）
-3. **リポジトリ名**: `stock-screening` のままか、ハブとしての名前（例: `stock-hub`）へ変更するか（推奨: 当面そのまま。パス参照の変更コストが先行する）
-4. **history のデータソース**: yfinance で統一するか、market-watch 実測方式（Yahoo chart API 直叩き）もフォールバックとして持つか（推奨: yfinance で開始し、欠損が実測されたら追加）
+1. **非スコープ機能の扱い**: 廃止する（残置・移管はしない）。§3.4 の注意点（ローカルデータの残置・cron 解除）に従う
+2. **market-watch の独立型設計**: adapter-stock 依存へ切り替える。取得ロジックの一元化が本転換の主目的のため
+3. **リポジトリ名**: 当面 `stock-screening` のまま。リネーム案は https://github.com/koboriakira/tasks/issues/51 で将来判断する
+4. **history のデータソース**: yfinance で統一して開始する。欠損が実測されたら Yahoo chart API 直叩きのフォールバック追加を検討する
