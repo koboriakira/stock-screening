@@ -27,11 +27,22 @@ from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
 from stock_screener.shared.config import HARD_FILTERS, dump_config
+from stock_screener.shared.json_output import (
+    DATA_SOURCE_ERROR,
+    INVALID_ARGUMENT,
+    DataSourceError,
+    InputError,
+    render_error,
+)
 
 logger = logging.getLogger(__name__)
 
 TEST_MODE_LIMIT = 5
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "stock-screener" / "results"
+
+# format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
+# このフェーズでは対象コマンドは未実装のため空。後続フェーズで quote 等を追加する。
+JSON_ONLY_COMMANDS: frozenset[str] = frozenset()
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -59,6 +70,14 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _is_json_mode(args: argparse.Namespace) -> bool:
+    """JSON 出力モードかどうかを判定する。
+
+    --format json 指定、または JSON_ONLY_COMMANDS に含まれるコマンドなら True。
+    """
+    return getattr(args, "format", "table") == "json" or args.command in JSON_ONLY_COMMANDS
+
+
 def main() -> None:
     """CLI エントリーポイント。"""
     parser = _build_parser()
@@ -72,15 +91,34 @@ def main() -> None:
         "evaluate": _run_evaluate,
         "diff": _run_diff,
     }
+    json_mode = _is_json_mode(args)
 
     try:
         handler = handlers[args.command]
         handler(args)
     except FileNotFoundError as e:
-        logger.error("ファイルが見つかりません: %s", e)
+        if json_mode:
+            print(render_error(INVALID_ARGUMENT, str(e)))
+        else:
+            logger.error("ファイルが見つかりません: %s", e)
+        raise SystemExit(2) from e
+    except InputError as e:
+        if json_mode:
+            print(render_error(e.code, e.message))
+        else:
+            logger.error("エラーが発生しました: %s", e.message)
+        raise SystemExit(2) from e
+    except DataSourceError as e:
+        if json_mode:
+            print(render_error(e.code, e.message))
+        else:
+            logger.error("エラーが発生しました: %s", e.message)
         raise SystemExit(1) from e
     except Exception as e:
-        logger.error("エラーが発生しました: %s", e)
+        if json_mode:
+            print(render_error(DATA_SOURCE_ERROR, str(e)))
+        else:
+            logger.error("エラーが発生しました: %s", e)
         raise SystemExit(1) from e
 
 

@@ -1,10 +1,13 @@
+import argparse
 import csv
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from stock_screener.cli import main
+from stock_screener.cli import _is_json_mode, main
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
+from stock_screener.shared.json_output import DataSourceError, InputError
 
 
 def _make_mock_jpx_data():
@@ -164,7 +167,8 @@ class TestCliErrorHandling:
             pytest.raises(SystemExit) as exc_info,
         ):
             main()
-        assert exc_info.value.code == 1
+        # FileNotFoundError は入力エラーとして exit code 2 に統一する契約
+        assert exc_info.value.code == 2
         assert "見つかりません" in caplog.text
 
     def test_screen_jpx_fetch_failure(self, caplog):
@@ -178,3 +182,77 @@ class TestCliErrorHandling:
             main()
         assert exc_info.value.code == 1
         assert "エラー" in caplog.text
+
+    def test_file_not_found_exits_2_regardless_of_command(self, caplog):
+        """FileNotFoundError はどのコマンド起因でも exit code 2 になる契約。"""
+        with (
+            patch("stock_screener.cli._run_diff", side_effect=FileNotFoundError("no snapshot")),
+            patch("sys.argv", ["stock-screener", "diff"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 2
+        assert "見つかりません" in caplog.text
+
+    def test_input_error_exits_2(self, caplog):
+        with (
+            patch("stock_screener.cli._run_diff", side_effect=InputError("bad ticker", code="invalid_ticker")),
+            patch("sys.argv", ["stock-screener", "diff"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 2
+        assert "bad ticker" in caplog.text
+
+    def test_data_source_error_exits_1(self, caplog):
+        with (
+            patch("stock_screener.cli._run_diff", side_effect=DataSourceError("api down")),
+            patch("sys.argv", ["stock-screener", "diff"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+        assert "api down" in caplog.text
+
+    def test_input_error_json_mode_prints_render_error(self, capsys):
+        with (
+            patch("stock_screener.cli._run_diff", side_effect=InputError("bad ticker", code="invalid_ticker")),
+            patch("stock_screener.cli.JSON_ONLY_COMMANDS", frozenset({"diff"})),
+            patch("sys.argv", ["stock-screener", "diff"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"type": "error", "error": {"code": "invalid_ticker", "message": "bad ticker"}}
+
+    def test_data_source_error_json_mode_prints_render_error(self, capsys):
+        with (
+            patch("stock_screener.cli._run_diff", side_effect=DataSourceError("api down", code="network_error")),
+            patch("stock_screener.cli.JSON_ONLY_COMMANDS", frozenset({"diff"})),
+            patch("sys.argv", ["stock-screener", "diff"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload == {"type": "error", "error": {"code": "network_error", "message": "api down"}}
+
+
+class TestIsJsonMode:
+    def test_format_json_flag(self):
+        args = argparse.Namespace(command="screen", format="json")
+        assert _is_json_mode(args) is True
+
+    def test_format_table_flag(self):
+        args = argparse.Namespace(command="screen", format="table")
+        assert _is_json_mode(args) is False
+
+    def test_missing_format_attr_defaults_to_table(self):
+        args = argparse.Namespace(command="screen")
+        assert _is_json_mode(args) is False
+
+    def test_json_only_command(self):
+        args = argparse.Namespace(command="quote")
+        with patch("stock_screener.cli.JSON_ONLY_COMMANDS", frozenset({"quote"})):
+            assert _is_json_mode(args) is True
