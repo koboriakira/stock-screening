@@ -48,6 +48,7 @@ from stock_screener.shared.json_output import (
     render_success,
 )
 from stock_screener.shared.types import Ticker
+from stock_screener.signals.service import compute_signals
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ HISTORY_PERIOD_CHOICES = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10
 HISTORY_INTERVAL_CHOICES = ["1d", "1wk", "1mo"]
 
 # format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
-JSON_ONLY_COMMANDS: frozenset[str] = frozenset({"quote", "history", "financials"})
+JSON_ONLY_COMMANDS: frozenset[str] = frozenset({"quote", "history", "financials", "signals"})
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -105,6 +106,15 @@ def _build_parser() -> argparse.ArgumentParser:
     financials_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
     financials_parser.add_argument("--no-cache", action="store_true", help="キャッシュを使用しない")
 
+    signals_parser = subparsers.add_parser("signals", help="底打ちシグナルを取得 (JSON出力)")
+    signals_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
+    signals_parser.add_argument(
+        "--volume-threshold",
+        type=float,
+        default=1.5,
+        help="出来高確認の閾値 (5日平均比, default: 1.5)",
+    )
+
     return parser
 
 
@@ -131,6 +141,7 @@ def main() -> None:
         "quote": _run_quote,
         "history": _run_history,
         "financials": _run_financials,
+        "signals": _run_signals,
     }
     json_mode = _is_json_mode(args)
 
@@ -581,6 +592,19 @@ def _run_financials(args: argparse.Namespace) -> None:
     _raise_if_all_failed(tickers, errors, fetch_error_count)
     all_cache_hit = bool(items) and all(item["cache_hit"] for item in items)
     print(render_success("financials", items, "yfinance", errors=errors, cache_hit=all_cache_hit))
+
+
+def _run_signals(args: argparse.Namespace) -> None:
+    """signals サブコマンド: 底打ちテクニカルシグナルを取得する (JSON 出力専用)。"""
+    tickers = _validate_tickers(args.tickers)
+
+    items, errors, fetch_error_count = _fetch_items(
+        tickers,
+        lambda t: fetch_history(t.symbol, period="6mo", interval="1d"),
+        lambda symbol, hist: compute_signals(symbol, hist, volume_threshold=args.volume_threshold),
+    )
+    _raise_if_all_failed(tickers, errors, fetch_error_count)
+    print(render_success("signals", items, "yfinance", errors=errors))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:
