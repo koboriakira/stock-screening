@@ -59,7 +59,9 @@ HISTORY_PERIOD_CHOICES = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10
 HISTORY_INTERVAL_CHOICES = ["1d", "1wk", "1mo"]
 
 # format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
-JSON_ONLY_COMMANDS: frozenset[str] = frozenset({"quote", "history", "financials", "signals"})
+JSON_ONLY_COMMANDS: frozenset[str] = frozenset(
+    {"quote", "history", "financials", "signals", "universe"},
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -115,6 +117,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="出来高確認の閾値 (5日平均比, default: 1.5)",
     )
 
+    universe_parser = subparsers.add_parser("universe", help="JPX銘柄一覧を取得 (JSON出力)")
+    universe_parser.add_argument("--market", type=str, default=None, help="市場区分でフィルタ (部分一致)")
+
     return parser
 
 
@@ -142,6 +147,7 @@ def main() -> None:
         "history": _run_history,
         "financials": _run_financials,
         "signals": _run_signals,
+        "universe": _run_universe,
     }
     json_mode = _is_json_mode(args)
 
@@ -605,6 +611,34 @@ def _run_signals(args: argparse.Namespace) -> None:
     )
     _raise_if_all_failed(tickers, errors, fetch_error_count)
     print(render_success("signals", items, "yfinance", errors=errors))
+
+
+def _build_universe_item(row: dict) -> dict:
+    """universe アイテムを組み立てる。code は JPX 素のコード、ticker は '.T' 付き。"""
+    code = row["ticker"]
+    return {
+        "code": code,
+        "ticker": f"{code}.T",
+        "company_name": row["company_name"],
+        "sector": row["sector"],
+        "market": row.get("market", ""),
+    }
+
+
+def _run_universe(args: argparse.Namespace) -> None:
+    """universe サブコマンド: JPX 銘柄一覧を取得する (JSON 出力専用)。"""
+    fetcher = JpxStockListFetcher()
+    try:
+        jpx_data = fetcher.fetch()
+    except Exception as e:
+        code, message = _classify_fetch_exception(e)
+        raise DataSourceError(message, code=code) from e
+
+    items = [_build_universe_item(row) for row in jpx_data]
+    if args.market:
+        items = [item for item in items if args.market in item["market"]]
+
+    print(render_success("universe", items, "jpx", cache_hit=False))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:
