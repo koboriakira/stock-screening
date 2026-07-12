@@ -24,22 +24,6 @@ uv run stock-screener screen --test   # テストモード: 5銘柄のみ
 # 評価（3ゲート判定）
 uv run stock-screener evaluate --input result.csv
 uv run stock-screener evaluate --input result.csv --output eval.csv
-
-# ポートフォリオ管理
-uv run stock-screener record-buy --ticker 4486.T --price 675 --shares 100 --date 2026-02-26
-uv run stock-screener record-sell --ticker 4486.T --price 900 --reason "利確"
-
-# 銘柄分析データ
-uv run stock-screener save-analysis --ticker 4486.T --file analysis.md
-uv run stock-screener show-analysis                    # 全銘柄一覧
-uv run stock-screener show-analysis --ticker 4486.T    # 詳細表示
-
-# 日次モニタリング（exit判定 + 分析アラート）
-uv run stock-screener monitor --skip-calendar
-
-# 日次レポート（monitor + watchlist-check + サマリー生成）
-uv run stock-screener daily-report --skip-calendar
-uv run stock-screener daily-report --skip-calendar --notify  # Slack送信
 ```
 
 ## 開発ルール
@@ -58,8 +42,6 @@ src/stock_screener/
 ├── market_data/     # JPX銘柄リスト取得、yfinance での財務データ取得
 ├── discovery/       # ハードフィルタ → ソフトフィルタ → スコアリング
 ├── evaluation/      # Gate1(致命的欠陥) → Gate2(カタリスト) → Gate3(バリュエーション)
-├── timing/          # エントリー/エグジット判定、ポートフォリオ管理
-├── monitoring/      # 日次モニタリング、ウォッチリスト、銘柄分析アラート
 └── cli.py
 ```
 
@@ -85,7 +67,6 @@ StubEvaluationDataProvider           # 全メソッド NEEDS_REVIEW / None
 | 変数名 | 説明 |
 |--------|------|
 | `EDINET_API_KEY` | EDINET API キー。未設定でも動作する（Gate1 チェックが NEEDS_REVIEW になる） |
-| `SLACK_BOT_TOKEN` | Slack Bot Token。未設定の場合は通知をスキップする |
 
 ## 未実装のチェック項目（スタブのまま）
 
