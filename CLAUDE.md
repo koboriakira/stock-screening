@@ -39,9 +39,10 @@ DDD で 4つの境界づけられたコンテキストに分割。
 ```
 src/stock_screener/
 ├── shared/          # 値オブジェクト（Ticker, Money, Percentage）、設定値
-├── market_data/     # JPX銘柄リスト取得、yfinance での財務データ取得
+├── market_data/     # JPX銘柄リスト取得、yfinance での財務データ取得、営業日判定
 ├── discovery/       # ハードフィルタ → ソフトフィルタ → スコアリング
 ├── evaluation/      # Gate1(致命的欠陥) → Gate2(カタリスト) → Gate3(バリュエーション)
+├── signals/         # テクニカルシグナル計算（RSI/BB/MACD/出来高/25MA）
 └── cli.py
 ```
 

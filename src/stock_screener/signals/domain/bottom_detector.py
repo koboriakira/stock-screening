@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from stock_screener.monitoring.domain.technical_indicators import (
+from stock_screener.signals.domain.technical_indicators import (
     calc_bollinger_bands,
     calc_macd,
     calc_rsi,

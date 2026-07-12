@@ -1,6 +1,6 @@
 from datetime import date
 
-from stock_screener.monitoring.domain.trading_day import is_trading_day
+from stock_screener.market_data.domain.trading_day import is_trading_day
 
 
 class TestIsTradingDay:

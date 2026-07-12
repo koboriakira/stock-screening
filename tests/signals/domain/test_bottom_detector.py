@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from stock_screener.monitoring.domain.bottom_detector import (
+from stock_screener.signals.domain.bottom_detector import (
     BottomSignal,
     detect_bottom_signals,
 )
@@ -14,10 +14,12 @@ def _make_history(
     n = len(close)
     if volume is None:
         volume = [10000.0] * n
-    return pd.DataFrame({
-        "Close": close,
-        "Volume": volume,
-    })
+    return pd.DataFrame(
+        {
+            "Close": close,
+            "Volume": volume,
+        },
+    )
 
 
 def _make_downtrend_then_recovery() -> pd.DataFrame:

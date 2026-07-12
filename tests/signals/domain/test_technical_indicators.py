@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from stock_screener.monitoring.domain.technical_indicators import (
+from stock_screener.signals.domain.technical_indicators import (
     calc_bollinger_bands,
     calc_macd,
     calc_rsi,
@@ -76,7 +76,9 @@ class TestCalcMACD:
         # Only compare where both are not NaN
         valid = ~(diff.isna() | histogram.isna())
         np.testing.assert_array_almost_equal(
-            histogram[valid].values, diff[valid].values, decimal=10,
+            histogram[valid].values,
+            diff[valid].values,
+            decimal=10,
         )
 
 
