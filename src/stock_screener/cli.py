@@ -51,8 +51,11 @@ logger = logging.getLogger(__name__)
 TEST_MODE_LIMIT = 5
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "stock-screener" / "results"
 
+HISTORY_PERIOD_CHOICES = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
+HISTORY_INTERVAL_CHOICES = ["1d", "1wk", "1mo"]
+
 # format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
-JSON_ONLY_COMMANDS: frozenset[str] = frozenset({"quote"})
+JSON_ONLY_COMMANDS: frozenset[str] = frozenset({"quote", "history"})
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -80,6 +83,21 @@ def _build_parser() -> argparse.ArgumentParser:
     quote_parser = subparsers.add_parser("quote", help="現在値を取得 (JSON出力)")
     quote_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
 
+    history_parser = subparsers.add_parser("history", help="価格履歴を取得 (JSON出力)")
+    history_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
+    history_parser.add_argument(
+        "--period",
+        default="3mo",
+        choices=HISTORY_PERIOD_CHOICES,
+        help="取得期間 (default: 3mo)",
+    )
+    history_parser.add_argument(
+        "--interval",
+        default="1d",
+        choices=HISTORY_INTERVAL_CHOICES,
+        help="足の間隔 (default: 1d)",
+    )
+
     return parser
 
 
@@ -104,6 +122,7 @@ def main() -> None:
         "evaluate": _run_evaluate,
         "diff": _run_diff,
         "quote": _run_quote,
+        "history": _run_history,
     }
     json_mode = _is_json_mode(args)
 
@@ -485,6 +504,35 @@ def _run_quote(args: argparse.Namespace) -> None:
     )
     _raise_if_all_failed(tickers, errors, fetch_error_count)
     print(render_success("quote", items, "yfinance", errors=errors))
+
+
+def _build_history_item(ticker_symbol: str, period: str, interval: str, hist: pd.DataFrame) -> dict:
+    """history アイテムを組み立てる。bars は古い順。"""
+    bars = [
+        {
+            "date": idx.strftime("%Y-%m-%d"),
+            "open": float(row["Open"]),
+            "high": float(row["High"]),
+            "low": float(row["Low"]),
+            "close": float(row["Close"]),
+            "volume": int(row["Volume"]),
+        }
+        for idx, row in hist.iterrows()
+    ]
+    return {"ticker": ticker_symbol, "period": period, "interval": interval, "bars": bars}
+
+
+def _run_history(args: argparse.Namespace) -> None:
+    """history サブコマンド: 価格履歴を取得する (JSON 出力専用)。"""
+    tickers = _validate_tickers(args.tickers)
+
+    items, errors, fetch_error_count = _fetch_items(
+        tickers,
+        lambda t: fetch_history(t.symbol, period=args.period, interval=args.interval),
+        lambda symbol, hist: _build_history_item(symbol, args.period, args.interval, hist),
+    )
+    _raise_if_all_failed(tickers, errors, fetch_error_count)
+    print(render_success("history", items, "yfinance", errors=errors))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:
