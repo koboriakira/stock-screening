@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import csv
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from stock_screener.cli import main
 from stock_screener.evaluation.infrastructure.stub_provider import StubEvaluationDataProvider
+from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
+from stock_screener.market_data.service import SnapshotFetchResult
 
 
 def _write_screen_csv(path, rows):
@@ -32,6 +34,16 @@ def _make_screen_csv(tmp_path):
         },
     ])
     return csv_path
+
+
+def _patch_snapshot_service(snapshots: dict[str, FinancialSnapshot]):
+    """CLIがFinancialSnapshotServiceでyfinanceを呼ぶのを防ぐモック。ticker.symbol -> snapshot。"""
+    mock_service = MagicMock()
+    mock_service.fetch.side_effect = lambda ticker: SnapshotFetchResult(
+        snapshot=snapshots[ticker.symbol],
+        cache_hit=False,
+    )
+    return patch("stock_screener.cli.FinancialSnapshotService", return_value=mock_service)
 
 
 def _patch_provider():
@@ -284,3 +296,100 @@ class TestEvaluateJsonFormat:
         assert exc_info.value.code == 2
         out = json.loads(capsys.readouterr().out)
         assert out["type"] == "error"
+
+
+class TestEvaluateSingleTicker:
+    """evaluate コマンドの positional ticker (--input なしの単銘柄/複数銘柄指定) のテスト。"""
+
+    def _snapshot(self, **overrides) -> FinancialSnapshot:
+        defaults = {"per": 8.0, "pbr": 0.7, "roe": 0.10, "market_cap": 10_000_000_000}
+        defaults.update(overrides)
+        return FinancialSnapshot(**defaults)
+
+    def test_single_ticker_json_item_shape(self, capsys):
+        """単銘柄json: rank/score_total は null、gates 3件、verdict が含まれる。"""
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "7203.T", "--format", "json"]),
+            _patch_provider(),
+            _patch_snapshot_service({"7203.T": self._snapshot()}),
+        ):
+            main()
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["type"] == "evaluate"
+        assert payload["count"] == 1
+        item = payload["items"][0]
+        assert item["rank"] is None
+        assert item["score_total"] is None
+        assert item["ticker"] == "7203.T"
+        assert item["verdict"] in {"INVEST", "WATCHLIST", "REJECT"}
+        assert len(item["gates"]) == 3
+        assert [g["name"] for g in item["gates"]] == ["gate1", "gate2", "gate3"]
+
+    def test_multiple_tickers_no_data_goes_to_errors(self, capsys):
+        """複数銘柄指定で空スナップショットの銘柄は errors に no_data として入り、処理は継続する。"""
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "7203.T", "9999.T", "--format", "json"]),
+            _patch_provider(),
+            _patch_snapshot_service({"7203.T": self._snapshot(), "9999.T": FinancialSnapshot()}),
+        ):
+            main()
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["count"] == 1
+        assert payload["items"][0]["ticker"] == "7203.T"
+        assert len(payload["errors"]) == 1
+        assert payload["errors"][0]["ticker"] == "9999.T"
+        assert payload["errors"][0]["code"] == "no_data"
+
+    def test_tickers_and_input_both_specified_exit_2(self, tmp_path):
+        """tickers と --input を両方指定すると exit 2。"""
+        csv_path = _make_screen_csv(tmp_path)
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "7203.T", "--input", str(csv_path)]),
+            _patch_provider(),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 2
+
+    def test_neither_tickers_nor_input_exit_2(self):
+        """tickers も --input もなければ exit 2。"""
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate"]),
+            _patch_provider(),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 2
+
+    def test_invalid_ticker_exit_2(self):
+        """不正なticker形式は exit 2 (フェッチ前に検証される)。"""
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "not-a-ticker"]),
+            _patch_provider(),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 2
+
+    def test_single_ticker_table_mode_does_not_crash(self, capsys):
+        """単銘柄table出力がクラッシュせず、評価結果ヘッダを表示する。"""
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "7203.T"]),
+            _patch_provider(),
+            _patch_snapshot_service({"7203.T": self._snapshot()}),
+        ):
+            main()
+        captured = capsys.readouterr()
+        assert "評価結果" in captured.out
+        assert "7203.T" in captured.out
+
+    def test_single_ticker_table_mode_missing_company_name_does_not_crash(self, capsys):
+        """company_name が None (discovery由来のメタデータなし) でも table 出力がクラッシュしない。"""
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "7203.T"]),
+            _patch_provider(),
+            _patch_snapshot_service({"7203.T": self._snapshot()}),
+        ):
+            main()
+        captured = capsys.readouterr()
+        assert captured.out  # クラッシュせず何らかの出力がある

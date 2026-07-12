@@ -76,6 +76,32 @@ class TestEvaluationTarget:
         assert target.financial_snapshot.market_cap is None
 
 
+class TestFromSnapshot:
+    """from_snapshot が単銘柄指定(evaluateコマンドの positional ticker)向けに生成するテスト。"""
+
+    def test_from_snapshot_minimal(self):
+        snapshot = FinancialSnapshot(per=10.5, pbr=1.2, net_cash_ratio=0.25)
+        target = EvaluationTarget.from_snapshot(ticker=Ticker("7203"), financial_snapshot=snapshot)
+        assert target.ticker == Ticker("7203")
+        assert target.financial_snapshot is snapshot
+        assert target.discovery_rank is None
+        assert target.score_total is None
+        assert target.company_name is None
+        assert target.sector == ""
+        assert target.anomaly_flags == []
+
+    def test_from_snapshot_with_company_name(self):
+        snapshot = FinancialSnapshot(per=10.5)
+        target = EvaluationTarget.from_snapshot(
+            ticker=Ticker("7203"),
+            financial_snapshot=snapshot,
+            company_name="トヨタ自動車",
+            sector="輸送用機器",
+        )
+        assert target.company_name == "トヨタ自動車"
+        assert target.sector == "輸送用機器"
+
+
 class TestFromCsvRowFullMapping:
     """from_csv_row がCSVの全フィールドを FinancialSnapshot にマッピングするテスト。"""
 

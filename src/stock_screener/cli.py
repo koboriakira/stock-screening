@@ -88,8 +88,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="出力形式 (default: table)",
     )
 
-    evaluate_parser = subparsers.add_parser("evaluate", help="スクリーニング結果を評価")
-    evaluate_parser.add_argument("--input", type=str, required=True, help="スクリーニング結果CSV")
+    evaluate_parser = subparsers.add_parser("evaluate", help="スクリーニング結果、または単銘柄を評価")
+    evaluate_parser.add_argument(
+        "tickers",
+        nargs="*",
+        help="ティッカーシンボル (複数可。--input と排他)",
+    )
+    evaluate_parser.add_argument("--input", type=str, default=None, help="スクリーニング結果CSV (tickers と排他)")
     evaluate_parser.add_argument("--output", type=str, default=None, help="評価結果CSV出力パス")
     evaluate_parser.add_argument(
         "--format",
@@ -470,13 +475,30 @@ def _build_eval_provider() -> YFinanceEvaluationDataProvider:
 
 
 def _run_evaluate(args: argparse.Namespace) -> None:
-    """evaluate サブコマンド: スクリーニング結果を 3-Gate パイプラインで評価する。"""
-    input_path = Path(args.input)
-    logger.info("スクリーニング結果を読み込み中: %s", input_path)
+    """evaluate サブコマンド: スクリーニング結果CSV、または単銘柄指定を 3-Gate パイプラインで評価する。"""
+    has_tickers = bool(args.tickers)
+    has_input = args.input is not None
+    if has_tickers and has_input:
+        message = "tickers と --input は同時に指定できません"
+        raise InputError(message, code=INVALID_ARGUMENT)
+    if not has_tickers and not has_input:
+        message = "tickers または --input のいずれかを指定してください"
+        raise InputError(message, code=INVALID_ARGUMENT)
 
-    with input_path.open(newline="") as f:
-        reader = csv.DictReader(f)
-        targets = [EvaluationTarget.from_csv_row(row) for row in reader]
+    errors: list[dict] = []
+    if has_input:
+        input_path = Path(args.input)
+        logger.info("スクリーニング結果を読み込み中: %s", input_path)
+        with input_path.open(newline="") as f:
+            reader = csv.DictReader(f)
+            targets = [EvaluationTarget.from_csv_row(row) for row in reader]
+    else:
+        tickers = _validate_tickers(args.tickers)
+        targets, errors, fetch_error_count = _build_targets_from_tickers(tickers)
+        _raise_if_all_failed(tickers, errors, fetch_error_count)
+        if not _is_json_mode(args):
+            for e in errors:
+                logger.warning("%s: %s", e["ticker"], e["message"])
 
     logger.info("評価対象: %d銘柄", len(targets))
 
@@ -487,7 +509,7 @@ def _run_evaluate(args: argparse.Namespace) -> None:
     if _is_json_mode(args):
         items = _build_evaluate_items(reports)
         source = "yfinance+edinet" if isinstance(provider, EdinetEvaluationDataProvider) else "yfinance"
-        print(render_success("evaluate", items, source, cache_hit=False))
+        print(render_success("evaluate", items, source, errors=errors, cache_hit=False))
     else:
         _print_evaluation(reports)
 
@@ -498,6 +520,38 @@ def _run_evaluate(args: argparse.Namespace) -> None:
         detail_path = output_path.with_name(f"{output_path.stem}_detail{output_path.suffix}")
         _write_evaluation_detail_csv(reports, detail_path)
         logger.info("評価詳細CSV出力: %s", detail_path)
+
+
+def _build_targets_from_tickers(
+    tickers: list[Ticker],
+) -> tuple[list[EvaluationTarget], list[dict], int]:
+    """ティッカーから財務スナップショットを取得し EvaluationTarget を組み立てる。
+
+    データが空(全フィールド None)、またはフェッチ失敗のティッカーは errors へ回して継続する。
+    discovery(screening)を経由しないため、生成される EvaluationTarget の discovery_rank/score_total は None。
+    (targets, errors, fetch_error_count) を返す。fetch_error_count は全滅判定 (_raise_if_all_failed) 用。
+    """
+    cache = FileCache()
+    service = FinancialSnapshotService(cache=cache)
+
+    targets: list[EvaluationTarget] = []
+    errors: list[dict] = []
+    fetch_error_count = 0
+    for ticker in tickers:
+        try:
+            result = service.fetch(ticker)
+        except Exception as e:
+            fetch_error_count += 1
+            code, message = _classify_fetch_exception(e)
+            errors.append({"ticker": ticker.symbol, "code": code, "message": message})
+            continue
+
+        if result.snapshot == FinancialSnapshot():
+            errors.append({"ticker": ticker.symbol, "code": NO_DATA, "message": "財務データが取得できませんでした"})
+            continue
+
+        targets.append(EvaluationTarget.from_snapshot(ticker=ticker, financial_snapshot=result.snapshot))
+    return targets, errors, fetch_error_count
 
 
 def _run_diff(args: argparse.Namespace) -> None:
@@ -772,7 +826,7 @@ def _build_evaluate_items(reports: list[EvaluationReport]) -> list[dict]:
                 "company_name": r.target.company_name,
                 "verdict": r.verdict.name,
                 "verdict_reason": r.verdict_reason,
-                "score_total": round(r.target.score_total, 2),
+                "score_total": round(r.target.score_total, 2) if r.target.score_total is not None else None,
                 "gates": gates,
             },
         )
@@ -790,14 +844,17 @@ def _print_evaluation(reports: list[EvaluationReport]) -> None:
         g1 = "PASS" if r.gate1.passed else "FAIL"
         g2 = "PASS" if r.gate2.passed else "FAIL"
         g3 = "PASS" if r.gate3.passed else "FAIL"
+        rank_display = str(r.target.discovery_rank) if r.target.discovery_rank is not None else "-"
+        name_display = r.target.company_name if r.target.company_name is not None else "-"
         print(
-            f"{r.target.discovery_rank:>4} {r.target.ticker.symbol:<10} {r.target.company_name:<20}"
+            f"{rank_display:>4} {r.target.ticker.symbol:<10} {name_display:<20}"
             f" {r.verdict.value.upper():<12} {g1:<8} {g2:<8} {g3:<8}",
         )
 
     print()
     for r in reports:
-        print(f"\n--- {r.target.ticker.symbol} ({r.target.company_name}) ---")
+        name_display = r.target.company_name if r.target.company_name is not None else "-"
+        print(f"\n--- {r.target.ticker.symbol} ({name_display}) ---")
         print(f"  判定: {r.verdict.value.upper()}")
         if r.verdict_reason:
             print(f"  理由: {r.verdict_reason}")

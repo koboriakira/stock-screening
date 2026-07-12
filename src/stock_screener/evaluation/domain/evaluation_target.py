@@ -21,14 +21,18 @@ def _parse_optional_float(value: str) -> float | None:
 
 @dataclass(frozen=True)
 class EvaluationTarget:
-    """3-Gate 評価の対象銘柄。スクリーニング結果から生成される。"""
+    """3-Gate 評価の対象銘柄。スクリーニング結果、または財務スナップショット単体から生成される。
+
+    discovery_rank/score_total はスクリーニング(discovery)由来のメタデータであり、
+    from_snapshot 経由(単銘柄指定の evaluate)で生成した場合は None になる。
+    """
 
     ticker: Ticker
-    company_name: str
+    company_name: str | None
     sector: str
     financial_snapshot: FinancialSnapshot
-    discovery_rank: int
-    score_total: float
+    discovery_rank: int | None = None
+    score_total: float | None = None
     anomaly_flags: list[str] = field(default_factory=list)
 
     @classmethod
@@ -65,4 +69,26 @@ class EvaluationTarget:
             discovery_rank=int(row["rank"]),
             score_total=float(row["total_score"]),
             anomaly_flags=_parse_anomaly_flags(row.get("anomaly_flags", "")),
+        )
+
+    @classmethod
+    def from_snapshot(
+        cls,
+        ticker: Ticker,
+        financial_snapshot: FinancialSnapshot,
+        *,
+        company_name: str | None = None,
+        sector: str = "",
+    ) -> EvaluationTarget:
+        """財務スナップショット単体から生成する (evaluate コマンドの単銘柄指定用)。
+
+        スクリーニング(discovery)を経由しないため discovery_rank/score_total は None になる。
+        """
+        return cls(
+            ticker=ticker,
+            company_name=company_name,
+            sector=sector,
+            financial_snapshot=financial_snapshot,
+            discovery_rank=None,
+            score_total=None,
         )
