@@ -6,8 +6,12 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+
+import pandas as pd
+import requests
 
 from stock_screener.discovery.domain.anomaly_detector import AnomalyDetector
 from stock_screener.discovery.domain.candidate import ScreeningResult
@@ -25,15 +29,22 @@ from stock_screener.evaluation.service import EvaluationService
 from stock_screener.market_data.domain.security import Security
 from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
+from stock_screener.market_data.infrastructure.price_fetcher import fetch_history
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
 from stock_screener.shared.config import HARD_FILTERS, dump_config
 from stock_screener.shared.json_output import (
     DATA_SOURCE_ERROR,
     INVALID_ARGUMENT,
+    INVALID_TICKER,
+    NETWORK_ERROR,
+    NO_DATA,
+    RATE_LIMITED,
     DataSourceError,
     InputError,
     render_error,
+    render_success,
 )
+from stock_screener.shared.types import Ticker
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +52,7 @@ TEST_MODE_LIMIT = 5
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "stock-screener" / "results"
 
 # format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
-# このフェーズでは対象コマンドは未実装のため空。後続フェーズで quote 等を追加する。
-JSON_ONLY_COMMANDS: frozenset[str] = frozenset()
+JSON_ONLY_COMMANDS: frozenset[str] = frozenset({"quote"})
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -67,6 +77,9 @@ def _build_parser() -> argparse.ArgumentParser:
     diff_parser = subparsers.add_parser("diff", help="前回との差分レポート")
     diff_parser.add_argument("--top", type=int, default=20, help="上位N銘柄で比較 (default: 20)")
 
+    quote_parser = subparsers.add_parser("quote", help="現在値を取得 (JSON出力)")
+    quote_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
+
     return parser
 
 
@@ -90,6 +103,7 @@ def main() -> None:
         "screen": _run_screen,
         "evaluate": _run_evaluate,
         "diff": _run_diff,
+        "quote": _run_quote,
     }
     json_mode = _is_json_mode(args)
 
@@ -387,6 +401,90 @@ def _run_diff(args: argparse.Namespace) -> None:
 
     diff = DiffReport.compare(previous, latest, top_n=args.top)
     print(diff.format())
+
+
+def _validate_tickers(raw_tickers: list[str]) -> list[Ticker]:
+    """全ティッカーを Ticker VO で検証する。1つでも不正なら InputError を送出する。"""
+    tickers = []
+    for raw in raw_tickers:
+        try:
+            tickers.append(Ticker(raw))
+        except ValueError as e:
+            raise InputError(str(e), code=INVALID_TICKER) from e
+    return tickers
+
+
+def _classify_fetch_exception(e: Exception) -> tuple[str, str]:
+    """フェッチ例外を (code, message) に分類する。"""
+    if isinstance(e, requests.exceptions.HTTPError) and e.response is not None and e.response.status_code == 429:
+        return RATE_LIMITED, "レート制限により取得に失敗しました"
+    return NETWORK_ERROR, str(e) or "ネットワークエラーにより取得に失敗しました"
+
+
+def _fetch_items(
+    tickers: list[Ticker],
+    fetch: Callable[[Ticker], pd.DataFrame],
+    build_item: Callable[[str, pd.DataFrame], dict],
+) -> tuple[list[dict], list[dict], int]:
+    """ティッカーごとにフェッチし、items/errors/フェッチ例外件数を組み立てる。"""
+    items: list[dict] = []
+    errors: list[dict] = []
+    fetch_error_count = 0
+    for ticker in tickers:
+        try:
+            hist = fetch(ticker)
+        except Exception as e:
+            fetch_error_count += 1
+            code, message = _classify_fetch_exception(e)
+            errors.append({"ticker": ticker.symbol, "code": code, "message": message})
+            continue
+
+        if hist.empty:
+            errors.append({"ticker": ticker.symbol, "code": NO_DATA, "message": "価格データが取得できませんでした"})
+            continue
+
+        items.append(build_item(ticker.symbol, hist))
+    return items, errors, fetch_error_count
+
+
+def _raise_if_all_failed(tickers: list[Ticker], errors: list[dict], fetch_error_count: int) -> None:
+    """全ティッカーがフェッチ例外で失敗した場合のみ DataSourceError を送出する。"""
+    if fetch_error_count == len(tickers):
+        message = "すべてのティッカーでデータ取得に失敗しました"
+        raise DataSourceError(message, code=errors[0]["code"])
+
+
+def _build_quote_item(ticker_symbol: str, hist: pd.DataFrame) -> dict:
+    """quote アイテムを組み立てる。"""
+    last = hist.iloc[-1]
+    price = float(last["Close"])
+    if len(hist) >= 2:
+        prev_close = float(hist.iloc[-2]["Close"])
+        change_pct = round((price / prev_close - 1) * 100, 2)
+    else:
+        prev_close = None
+        change_pct = None
+    return {
+        "ticker": ticker_symbol,
+        "price": price,
+        "prev_close": prev_close,
+        "change_pct": change_pct,
+        "volume": int(last["Volume"]),
+        "date": hist.index[-1].strftime("%Y-%m-%d"),
+    }
+
+
+def _run_quote(args: argparse.Namespace) -> None:
+    """quote サブコマンド: 直近5日分から最新値を取得する (JSON 出力専用)。"""
+    tickers = _validate_tickers(args.tickers)
+
+    items, errors, fetch_error_count = _fetch_items(
+        tickers,
+        lambda t: fetch_history(t.symbol, period="5d", interval="1d"),
+        _build_quote_item,
+    )
+    _raise_if_all_failed(tickers, errors, fetch_error_count)
+    print(render_success("quote", items, "yfinance", errors=errors))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:
