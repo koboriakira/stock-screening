@@ -170,7 +170,8 @@ allowed-tools: Bash, Read
 - `data/calendar.json` は3銘柄のみの手動メンテ。`trading-day` は pandas_market_calendars 由来なので影響ないが、決算日・配当権利日を契約に含めるならデータソースが必要（現状は含めない）
 - Slack チャンネル ID がハードコード（`slack_notifier.py`）。非スコープ化に伴い当面放置可
 - `tmp:issue/` の旧仕様書2件（watchlist v2 / Layer6 PRD）は実装済み機能の初期設計書。位置づけ転換後に docs/ へ整理 or 削除を判断
-- codetour のコード規模記述が陳腐化（Phase B のドキュメント更新に含める）
+- codetour のコード規模記述が陳腐化（Phase C のドキュメント更新に含める）
+- main ベースラインに ruff format 未適用のドリフトが16ファイル残存（2026-07-12 実装時に3 worker が独立に確認）。Phase C で独立コミットとして一括 format する
 
 ## 8. 決定事項（2026-07-12 ユーザー回答）
 
