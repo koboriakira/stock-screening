@@ -8,8 +8,9 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -29,6 +30,7 @@ from stock_screener.evaluation.infrastructure.yfinance_eval_provider import YFin
 from stock_screener.evaluation.service import EvaluationService
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
 from stock_screener.market_data.domain.security import Security
+from stock_screener.market_data.domain.trading_day import is_trading_day
 from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.price_fetcher import fetch_history
@@ -54,13 +56,14 @@ logger = logging.getLogger(__name__)
 
 TEST_MODE_LIMIT = 5
 DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "stock-screener" / "results"
+_JST = ZoneInfo("Asia/Tokyo")
 
 HISTORY_PERIOD_CHOICES = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"]
 HISTORY_INTERVAL_CHOICES = ["1d", "1wk", "1mo"]
 
 # format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
 JSON_ONLY_COMMANDS: frozenset[str] = frozenset(
-    {"quote", "history", "financials", "signals", "universe"},
+    {"quote", "history", "financials", "signals", "universe", "trading-day"},
 )
 
 
@@ -120,6 +123,14 @@ def _build_parser() -> argparse.ArgumentParser:
     universe_parser = subparsers.add_parser("universe", help="JPX銘柄一覧を取得 (JSON出力)")
     universe_parser.add_argument("--market", type=str, default=None, help="市場区分でフィルタ (部分一致)")
 
+    trading_day_parser = subparsers.add_parser("trading-day", help="JPX営業日かどうかを判定 (JSON出力)")
+    trading_day_parser.add_argument(
+        "date",
+        nargs="?",
+        default=None,
+        help="判定対象日 (YYYY-MM-DD, 省略時は JST の今日)",
+    )
+
     return parser
 
 
@@ -148,6 +159,7 @@ def main() -> None:
         "financials": _run_financials,
         "signals": _run_signals,
         "universe": _run_universe,
+        "trading-day": _run_trading_day,
     }
     json_mode = _is_json_mode(args)
 
@@ -639,6 +651,24 @@ def _run_universe(args: argparse.Namespace) -> None:
         items = [item for item in items if args.market in item["market"]]
 
     print(render_success("universe", items, "jpx", cache_hit=False))
+
+
+def _parse_trading_day_date(raw: str | None) -> date:
+    """trading-day の date 引数をパースする。省略時は JST の今日を返す。"""
+    if raw is None:
+        return datetime.now(_JST).date()
+    try:
+        return date.fromisoformat(raw)
+    except ValueError as e:
+        message = f"日付の形式が不正です (YYYY-MM-DD): {raw}"
+        raise InputError(message, code=INVALID_ARGUMENT) from e
+
+
+def _run_trading_day(args: argparse.Namespace) -> None:
+    """trading-day サブコマンド: 指定日が JPX 営業日かどうかを判定する (JSON 出力専用)。"""
+    target = _parse_trading_day_date(args.date)
+    item = {"date": target.isoformat(), "is_trading_day": is_trading_day(target)}
+    print(render_success("trading-day", [item], "pandas_market_calendars", cache_hit=False))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:
