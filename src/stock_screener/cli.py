@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
 import logging
 import os
 import sys
@@ -26,11 +27,13 @@ from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
 from stock_screener.evaluation.infrastructure.edinet_eval_provider import EdinetEvaluationDataProvider
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import YFinanceEvaluationDataProvider
 from stock_screener.evaluation.service import EvaluationService
+from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
 from stock_screener.market_data.domain.security import Security
 from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.price_fetcher import fetch_history
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
+from stock_screener.market_data.service import FinancialSnapshotService, SnapshotFetchResult
 from stock_screener.shared.config import HARD_FILTERS, dump_config
 from stock_screener.shared.json_output import (
     DATA_SOURCE_ERROR,
@@ -55,7 +58,7 @@ HISTORY_PERIOD_CHOICES = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10
 HISTORY_INTERVAL_CHOICES = ["1d", "1wk", "1mo"]
 
 # format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
-JSON_ONLY_COMMANDS: frozenset[str] = frozenset({"quote", "history"})
+JSON_ONLY_COMMANDS: frozenset[str] = frozenset({"quote", "history", "financials"})
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -98,6 +101,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="足の間隔 (default: 1d)",
     )
 
+    financials_parser = subparsers.add_parser("financials", help="財務スナップショットを取得 (JSON出力)")
+    financials_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
+    financials_parser.add_argument("--no-cache", action="store_true", help="キャッシュを使用しない")
+
     return parser
 
 
@@ -123,6 +130,7 @@ def main() -> None:
         "diff": _run_diff,
         "quote": _run_quote,
         "history": _run_history,
+        "financials": _run_financials,
     }
     json_mode = _is_json_mode(args)
 
@@ -533,6 +541,46 @@ def _run_history(args: argparse.Namespace) -> None:
     )
     _raise_if_all_failed(tickers, errors, fetch_error_count)
     print(render_success("history", items, "yfinance", errors=errors))
+
+
+def _build_financials_item(ticker_symbol: str, result: SnapshotFetchResult) -> dict:
+    """financials アイテムを組み立てる。"""
+    return {
+        "ticker": ticker_symbol,
+        **dataclasses.asdict(result.snapshot),
+        "data_completeness": result.snapshot.data_completeness,
+        "cache_hit": result.cache_hit,
+    }
+
+
+def _run_financials(args: argparse.Namespace) -> None:
+    """financials サブコマンド: 財務スナップショットを取得する (JSON 出力専用)。"""
+    tickers = _validate_tickers(args.tickers)
+
+    cache = None if args.no_cache else FileCache()
+    service = FinancialSnapshotService(cache=cache)
+
+    items: list[dict] = []
+    errors: list[dict] = []
+    fetch_error_count = 0
+    for ticker in tickers:
+        try:
+            result = service.fetch(ticker)
+        except Exception as e:
+            fetch_error_count += 1
+            code, message = _classify_fetch_exception(e)
+            errors.append({"ticker": ticker.symbol, "code": code, "message": message})
+            continue
+
+        if result.snapshot == FinancialSnapshot():
+            errors.append({"ticker": ticker.symbol, "code": NO_DATA, "message": "財務データが取得できませんでした"})
+            continue
+
+        items.append(_build_financials_item(ticker.symbol, result))
+
+    _raise_if_all_failed(tickers, errors, fetch_error_count)
+    all_cache_hit = bool(items) and all(item["cache_hit"] for item in items)
+    print(render_success("financials", items, "yfinance", errors=errors, cache_hit=all_cache_hit))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:
