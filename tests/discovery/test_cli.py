@@ -159,6 +159,131 @@ class TestCli:
             main()
 
 
+class TestScreenJsonFormat:
+    def test_screen_json_format_outputs_single_json_object(self, capsys):
+        """--format json 指定時、stdout は JSON 1オブジェクトのみ (dump_config 等の混入なし)。"""
+        with (
+            patch("stock_screener.cli.JpxStockListFetcher") as mock_jpx_cls,
+            patch("stock_screener.cli.YFinanceSecurityRepository") as mock_repo_cls,
+            patch("sys.argv", ["stock-screener", "screen", "--top", "10", "--format", "json"]),
+        ):
+            mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
+            mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
+            mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
+
+            main()
+
+        out = capsys.readouterr().out.strip()
+        payload = json.loads(out)  # パースできること自体が「1オブジェクトのみ」の検証になる
+        assert payload["type"] == "screen"
+        assert payload["source"] == "jpx+yfinance"
+
+    def test_screen_json_item_fields(self, capsys):
+        """item は rank / ticker / スコア内訳 / 財務指標 / data_completeness / anomaly_flags を含む。"""
+        with (
+            patch("stock_screener.cli.JpxStockListFetcher") as mock_jpx_cls,
+            patch("stock_screener.cli.YFinanceSecurityRepository") as mock_repo_cls,
+            patch("sys.argv", ["stock-screener", "screen", "--top", "10", "--format", "json"]),
+        ):
+            mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
+            mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
+            mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
+
+            main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["count"] >= 1
+        item = payload["items"][0]
+        required_fields = [
+            "rank",
+            "ticker",
+            "company_name",
+            "sector",
+            "market_cap",
+            "total_score",
+            "value_score",
+            "quality_score",
+            "momentum_score",
+            "per",
+            "pbr",
+            "roe",
+            "operating_margin",
+            "equity_ratio",
+            "revenue_growth",
+            "op_profit_growth",
+            "dividend_yield",
+            "net_cash_ratio",
+            "week52_high_discount",
+            "current_price",
+            "data_completeness",
+            "missing_fields",
+            "anomaly_flags",
+            "screening_date",
+        ]
+        for f in required_fields:
+            assert f in item, f"Missing field: {f}"
+
+    def test_screen_json_still_writes_csv_and_snapshot(self, tmp_path):
+        """json モードでも CSV 出力とスナップショット保存は維持される。"""
+        output_path = tmp_path / "result.csv"
+
+        with (
+            patch("stock_screener.cli.JpxStockListFetcher") as mock_jpx_cls,
+            patch("stock_screener.cli.YFinanceSecurityRepository") as mock_repo_cls,
+            patch(
+                "sys.argv",
+                ["stock-screener", "screen", "--top", "10", "--format", "json", "--output", str(output_path)],
+            ),
+        ):
+            mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
+            mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
+            mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
+
+            main()
+
+        assert output_path.exists()
+        with output_path.open() as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        assert len(rows) >= 1
+        assert "ticker" in rows[0]
+
+    def test_screen_default_format_is_table_not_json(self, capsys):
+        """--format 省略時は従来どおり table 出力 (JSON としてパースできない)。"""
+        with (
+            patch("stock_screener.cli.JpxStockListFetcher") as mock_jpx_cls,
+            patch("stock_screener.cli.YFinanceSecurityRepository") as mock_repo_cls,
+            patch("sys.argv", ["stock-screener", "screen", "--top", "10"]),
+        ):
+            mock_jpx_cls.return_value.fetch.return_value = _make_mock_jpx_data()
+            mock_repo = mock_repo_cls.return_value
+            mock_repo.get_market_cap_only.return_value = 10_000_000_000
+            mock_repo.get_financial_snapshot.return_value = _make_mock_snapshot()
+
+            main()
+
+        out = capsys.readouterr().out
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(out)
+
+    def test_screen_json_mode_jpx_fetch_failure(self, capsys):
+        """json モードで JPX 取得失敗時、type:error の JSON + exit code 1。"""
+        mock_jpx_cls = MagicMock()
+        mock_jpx_cls.return_value.fetch.side_effect = RuntimeError("network error")
+        with (
+            patch("stock_screener.cli.JpxStockListFetcher", mock_jpx_cls),
+            patch("sys.argv", ["stock-screener", "screen", "--test", "--format", "json"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["type"] == "error"
+
+
 class TestCliErrorHandling:
     def test_evaluate_missing_file(self, caplog, tmp_path):
         missing = tmp_path / "nonexistent.csv"

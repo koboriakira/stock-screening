@@ -81,6 +81,12 @@ def _build_parser() -> argparse.ArgumentParser:
     screen_parser.add_argument("--output", type=str, default=None, help="CSV出力パス")
     screen_parser.add_argument("--test", action="store_true", help="テストモード (5銘柄のみ)")
     screen_parser.add_argument("--no-cache", action="store_true", help="キャッシュを使用しない")
+    screen_parser.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="出力形式 (default: table)",
+    )
 
     evaluate_parser = subparsers.add_parser("evaluate", help="スクリーニング結果を評価")
     evaluate_parser.add_argument("--input", type=str, required=True, help="スクリーニング結果CSV")
@@ -236,7 +242,11 @@ def _run_screen(args: argparse.Namespace) -> None:
     if anomaly_flags:
         logger.info("Anomaly flags: %d stocks", len(anomaly_flags))
 
-    _print_result(result)
+    if _is_json_mode(args):
+        items = _build_screen_items(result)
+        print(render_success("screen", items, "jpx+yfinance", cache_hit=False))
+    else:
+        _print_result(result)
 
     output_path = Path(args.output) if args.output else _default_output_path()
     _write_csv(result, output_path)
@@ -360,6 +370,43 @@ def _fmt_f(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.1f}"
+
+
+def _build_screen_items(result: ScreeningResult) -> list[dict]:
+    """screen JSON アイテムを組み立てる。フィールド名は CSV 出力とできるだけ揃える。"""
+    screening_date = result.timestamp.strftime("%Y-%m-%d")
+    items = []
+    for c in result.candidates:
+        snap = c.security.financial_snapshot
+        items.append(
+            {
+                "rank": c.rank,
+                "ticker": c.security.ticker.symbol,
+                "company_name": c.security.company_name,
+                "sector": c.security.sector,
+                "market_cap": snap.market_cap,
+                "total_score": round(c.score.total, 2),
+                "value_score": round(c.score.value, 2),
+                "quality_score": round(c.score.quality, 2),
+                "momentum_score": round(c.score.momentum, 2),
+                "per": snap.per,
+                "pbr": snap.pbr,
+                "roe": snap.roe,
+                "operating_margin": snap.operating_margin,
+                "equity_ratio": snap.equity_ratio,
+                "revenue_growth": snap.revenue_growth,
+                "op_profit_growth": snap.operating_profit_growth,
+                "dividend_yield": snap.dividend_yield,
+                "net_cash_ratio": snap.net_cash_ratio,
+                "week52_high_discount": snap.high_52w_discount,
+                "current_price": snap.current_price,
+                "data_completeness": round(snap.data_completeness, 2),
+                "missing_fields": snap.missing_fields,
+                "anomaly_flags": result.anomaly_flags.get(c.security.ticker.symbol, []),
+                "screening_date": screening_date,
+            },
+        )
+    return items
 
 
 def _print_result(result: ScreeningResult) -> None:
