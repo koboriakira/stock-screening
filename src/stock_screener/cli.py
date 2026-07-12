@@ -91,6 +91,12 @@ def _build_parser() -> argparse.ArgumentParser:
     evaluate_parser = subparsers.add_parser("evaluate", help="スクリーニング結果を評価")
     evaluate_parser.add_argument("--input", type=str, required=True, help="スクリーニング結果CSV")
     evaluate_parser.add_argument("--output", type=str, default=None, help="評価結果CSV出力パス")
+    evaluate_parser.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="出力形式 (default: table)",
+    )
 
     diff_parser = subparsers.add_parser("diff", help="前回との差分レポート")
     diff_parser.add_argument("--top", type=int, default=20, help="上位N銘柄で比較 (default: 20)")
@@ -478,7 +484,12 @@ def _run_evaluate(args: argparse.Namespace) -> None:
     service = EvaluationService(provider)
     reports = service.execute(targets)
 
-    _print_evaluation(reports)
+    if _is_json_mode(args):
+        items = _build_evaluate_items(reports)
+        source = "yfinance+edinet" if isinstance(provider, EdinetEvaluationDataProvider) else "yfinance"
+        print(render_success("evaluate", items, source, cache_hit=False))
+    else:
+        _print_evaluation(reports)
 
     if args.output:
         output_path = Path(args.output)
@@ -732,6 +743,40 @@ def _gate_stats_str(gate_result: GateResult) -> str:
     if review_count:
         parts.append(f"?{review_count}")
     return f"{'PASS' if gate_result.passed else 'FAIL'} ({'/'.join(parts)}/{total})"
+
+
+def _build_evaluate_items(reports: list[EvaluationReport]) -> list[dict]:
+    """evaluate JSON アイテムを組み立てる。"""
+    items = []
+    for r in reports:
+        gates = [
+            {
+                "name": name,
+                "passed": gate_result.passed,
+                "checks": [
+                    {
+                        "id": c.check_id,
+                        "status": c.status.name,
+                        "description": c.description,
+                        "detail": c.detail,
+                    }
+                    for c in gate_result.checks
+                ],
+            }
+            for name, gate_result in [("gate1", r.gate1), ("gate2", r.gate2), ("gate3", r.gate3)]
+        ]
+        items.append(
+            {
+                "rank": r.target.discovery_rank,
+                "ticker": r.target.ticker.symbol,
+                "company_name": r.target.company_name,
+                "verdict": r.verdict.name,
+                "verdict_reason": r.verdict_reason,
+                "score_total": round(r.target.score_total, 2),
+                "gates": gates,
+            },
+        )
+    return items
 
 
 def _print_evaluation(reports: list[EvaluationReport]) -> None:

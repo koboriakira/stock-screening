@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import csv
+import json
 from unittest.mock import patch
+
+import pytest
 
 from stock_screener.cli import main
 from stock_screener.evaluation.infrastructure.stub_provider import StubEvaluationDataProvider
@@ -181,3 +184,103 @@ class TestCliEvaluate:
         assert "1-1" in check_ids_in_csv
         assert "2A-2" in check_ids_in_csv
         assert "3-2" in check_ids_in_csv
+
+
+class TestEvaluateJsonFormat:
+    def test_default_format_is_table(self, tmp_path, capsys):
+        """--format 省略時は table 形式のまま (既存挙動を破壊しない)。"""
+        csv_path = _make_screen_csv(tmp_path)
+        with patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path)]), _patch_provider():
+            main()
+        captured = capsys.readouterr()
+        assert "評価結果" in captured.out
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(captured.out)
+
+    def test_evaluate_json_single_object(self, tmp_path, capsys):
+        """--format json 指定時、stdout は JSON 1オブジェクトのみ。"""
+        csv_path = _make_screen_csv(tmp_path)
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path), "--format", "json"]),
+            _patch_provider(),
+        ):
+            main()
+        out = capsys.readouterr().out.strip()
+        payload = json.loads(out)  # パースできること自体が「1オブジェクトのみ」の検証になる
+        assert payload["type"] == "evaluate"
+        assert payload["source"] == "yfinance"
+        assert payload["count"] == 2
+
+    def test_evaluate_json_item_shape(self, tmp_path, capsys):
+        """item は rank/ticker/company_name/verdict/verdict_reason/score_total/gates を含む。"""
+        csv_path = _make_screen_csv(tmp_path)
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path), "--format", "json"]),
+            _patch_provider(),
+        ):
+            main()
+        payload = json.loads(capsys.readouterr().out)
+        item = payload["items"][0]
+        for f in ["rank", "ticker", "company_name", "verdict", "verdict_reason", "score_total", "gates"]:
+            assert f in item, f"Missing field: {f}"
+        assert item["verdict"] in {"INVEST", "WATCHLIST", "REJECT"}
+        assert len(item["gates"]) == 3
+        gate_names = [g["name"] for g in item["gates"]]
+        assert gate_names == ["gate1", "gate2", "gate3"]
+        for gate in item["gates"]:
+            assert "passed" in gate
+            assert "checks" in gate
+            for check in gate["checks"]:
+                assert {"id", "status", "description", "detail"} <= set(check.keys())
+
+    def test_evaluate_json_needs_review_status_present(self, tmp_path, capsys):
+        """StubEvaluationDataProvider 使用時、NEEDS_REVIEW がチェックの status 値として現れる (エラーにしない)。"""
+        csv_path = _make_screen_csv(tmp_path)
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "--input", str(csv_path), "--format", "json"]),
+            _patch_provider(),
+        ):
+            main()
+        payload = json.loads(capsys.readouterr().out)
+        all_statuses = {
+            check["status"] for item in payload["items"] for gate in item["gates"] for check in gate["checks"]
+        }
+        assert "NEEDS_REVIEW" in all_statuses
+
+    def test_evaluate_json_still_writes_csv(self, tmp_path):
+        """json モードでも --output の CSV (本体 + detail) は維持される。"""
+        csv_path = _make_screen_csv(tmp_path)
+        output_path = tmp_path / "eval.csv"
+        detail_path = tmp_path / "eval_detail.csv"
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "stock-screener",
+                    "evaluate",
+                    "--input",
+                    str(csv_path),
+                    "--output",
+                    str(output_path),
+                    "--format",
+                    "json",
+                ],
+            ),
+            _patch_provider(),
+        ):
+            main()
+        assert output_path.exists()
+        assert detail_path.exists()
+
+    def test_evaluate_json_missing_input_file_returns_error(self, tmp_path, capsys):
+        """json モードで入力ファイル不在 -> type:error + exit 2。"""
+        missing_path = tmp_path / "does_not_exist.csv"
+        with (
+            patch("sys.argv", ["stock-screener", "evaluate", "--input", str(missing_path), "--format", "json"]),
+            _patch_provider(),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 2
+        out = json.loads(capsys.readouterr().out)
+        assert out["type"] == "error"
