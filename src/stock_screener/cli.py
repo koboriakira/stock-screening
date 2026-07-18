@@ -30,7 +30,11 @@ from stock_screener.evaluation.infrastructure.yfinance_eval_provider import YFin
 from stock_screener.evaluation.service import EvaluationService
 from stock_screener.market_data.domain.financial_snapshot import FinancialSnapshot
 from stock_screener.market_data.domain.security import Security
-from stock_screener.market_data.domain.trading_day import is_trading_day
+from stock_screener.market_data.domain.trading_day import (
+    is_trading_day,
+    market_open_close,
+    next_trading_day,
+)
 from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.price_fetcher import fetch_history
@@ -779,7 +783,14 @@ def _parse_trading_day_date(raw: str | None) -> date:
 def _run_trading_day(args: argparse.Namespace) -> None:
     """trading-day サブコマンド: 指定日が JPX 営業日かどうかを判定する (JSON 出力専用)。"""
     target = _parse_trading_day_date(args.date)
-    item = {"date": target.isoformat(), "is_trading_day": is_trading_day(target)}
+    open_close = market_open_close(target)
+    item = {
+        "date": target.isoformat(),
+        "is_trading_day": is_trading_day(target),
+        "next_trading_day": next_trading_day(target).isoformat(),
+        "market_open": open_close[0].isoformat() if open_close else None,
+        "market_close": open_close[1].isoformat() if open_close else None,
+    }
     print(render_success("trading-day", [item], "pandas_market_calendars", cache_hit=False))
 
 

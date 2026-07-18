@@ -20,6 +20,9 @@ class TestCliTradingDayWeekday:
         assert item["date"] == "2026-02-24"
         assert item["is_trading_day"] is True
         assert out["source"] == "pandas_market_calendars"
+        assert item["next_trading_day"] == "2026-02-25"
+        assert item["market_open"] == "09:00:00"
+        assert item["market_close"] == "15:30:00"
 
 
 class TestCliTradingDayWeekend:
@@ -27,7 +30,11 @@ class TestCliTradingDayWeekend:
         with patch("sys.argv", ["stock-screener", "trading-day", "2026-02-21"]):
             main()
         out = json.loads(capsys.readouterr().out)
-        assert out["items"][0]["is_trading_day"] is False
+        item = out["items"][0]
+        assert item["is_trading_day"] is False
+        assert item["next_trading_day"] == "2026-02-24"
+        assert item["market_open"] is None
+        assert item["market_close"] is None
 
 
 class TestCliTradingDayHoliday:
@@ -35,7 +42,11 @@ class TestCliTradingDayHoliday:
         with patch("sys.argv", ["stock-screener", "trading-day", "2026-02-23"]):
             main()
         out = json.loads(capsys.readouterr().out)
-        assert out["items"][0]["is_trading_day"] is False
+        item = out["items"][0]
+        assert item["is_trading_day"] is False
+        assert item["next_trading_day"] == "2026-02-24"
+        assert item["market_open"] is None
+        assert item["market_close"] is None
 
 
 class TestCliTradingDayDefaultDate:
