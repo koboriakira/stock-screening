@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from stock_screener.corporate_events.service import LargeHoldingsService
+from stock_screener.corporate_events.service import EarningsDateService, LargeHoldingsService
 from stock_screener.shared.types import Ticker
 
 
@@ -33,4 +33,16 @@ class TestLargeHoldingsServiceFetch:
 
         result = service.fetch(Ticker("7203"))
 
+        assert result is None
+
+
+class TestEarningsDateServiceFetch:
+    def test_delegates_to_provider(self):
+        mock_provider = MagicMock()
+        mock_provider.get_earnings_date.return_value = None
+        service = EarningsDateService(mock_provider)
+
+        result = service.fetch(Ticker("7203"))
+
+        mock_provider.get_earnings_date.assert_called_once_with(Ticker("7203"))
         assert result is None

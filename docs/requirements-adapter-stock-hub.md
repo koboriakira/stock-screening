@@ -70,6 +70,7 @@
 | `universe` | `--market` 等のフィルタ | JPX 全銘柄リスト（コード・名称・市場・セクター） | JPX Excel | 不要 | 新規（既存 JpxStockListFetcher を流用） |
 | `trading-day [date]` | | JPX 営業日判定（`is_trading_day`）+ 翌営業日（`next_trading_day`）+ 寄付・引け時刻（`market_open`/`market_close`、JST、非営業日は `null`） | pandas_market_calendars | 不要 | 実装済み（既存 is_trading_day を流用 + 翌営業日・寄付引け時刻を拡張、koboriakira/stock-screening#2） |
 | `large-holdings <ticker>` | `--days`（既定90） | 大量保有報告書（5%ルール、docTypeCode 350/360）の提出日時・提出者名・証券コード（`status`: `ok`/`needs_review`） | EDINET（大量保有報告 + EDINETコードリスト） | 必須（EDINET_API_KEY 未設定時は全件 `status: "needs_review"`） | 実装済み（corporate_events/ 新設、EdinetClient を edinet/ へ移動、koboriakira/stock-screening#3） |
+| `earnings-date <ticker>` | | 決算発表予定日（`date`/`company_name`/`fiscal_year`/`fiscal_quarter`、`status`: `ok`/`needs_review`）。**発表予定日のみ、時刻は個人向けAPIの制約で非対応** | J-Quants個人向けAPI（`/equities/earnings-calendar`） | 必須（J_QUANTS_API_KEY 未設定時、または該当データなしの場合は全件 `status: "needs_review"`） | 実装済み（corporate_events/ に追加、認証方式は未検証、koboriakira/stock-screening#4） |
 | `screen` | `--top N` `--test` `--no-cache` | スクリーニング上位N件（スコア内訳付き） | JPX + yfinance | 不要 | 既存 CLI に `--format json` を追加 |
 | `evaluate <ticker>` | `--input <csv>` も許容 | Gate1/2/3 判定と各チェック結果 | yfinance（+EDINET） | 任意（EDINET_API_KEY があれば精度向上） | 既存 CLI に `--format json` を追加 |
 
@@ -174,6 +175,8 @@ allowed-tools: Bash, Read
 - `tmp:issue/` の旧仕様書2件（watchlist v2 / Layer6 PRD）は実装済み機能の初期設計書。位置づけ転換後に docs/ へ整理 or 削除を判断
 - codetour のコード規模記述が陳腐化（Phase C のドキュメント更新に含める）
 - main ベースラインに ruff format 未適用のドリフトが16ファイル残存（2026-07-12 実装時に3 worker が独立に確認）。Phase C で独立コミットとして一括 format する
+- `earnings-date` の J-Quants認証方式は未検証（単一APIキーをヘッダに渡す最も単純な実装のみ実装、モックテストのみで実データ疎通は未確認）。実キー取得後、リフレッシュトークン方式等への修正が必要になる可能性がある（koboriakira/stock-screening#4）
+- `earnings-date` は「該当データなし」と「翌営業日分のみ返す設計上の対象外」を区別せず両方 `needs_review` として返す。過去日・将来複数日の一括バックフィルは非対応で、実装時にAPI仕様の再確認が必要
 
 ## 8. 決定事項（2026-07-12 ユーザー回答）
 

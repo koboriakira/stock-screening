@@ -15,11 +15,16 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 
+from stock_screener.corporate_events.domain.earnings_date import EarningsDate
 from stock_screener.corporate_events.domain.large_holding import LargeHoldingFiling
+from stock_screener.corporate_events.infrastructure.jquants_client import JQuantsClient
+from stock_screener.corporate_events.infrastructure.jquants_earnings_provider import (
+    JQuantsEarningsDateProvider,
+)
 from stock_screener.corporate_events.infrastructure.large_holding_provider import (
     EdinetLargeHoldingProvider,
 )
-from stock_screener.corporate_events.service import LargeHoldingsService
+from stock_screener.corporate_events.service import EarningsDateService, LargeHoldingsService
 from stock_screener.discovery.domain.anomaly_detector import AnomalyDetector
 from stock_screener.discovery.domain.candidate import ScreeningResult
 from stock_screener.discovery.domain.diff_report import DiffReport, ScreeningResultSnapshot
@@ -72,7 +77,16 @@ HISTORY_INTERVAL_CHOICES = ["1d", "1wk", "1mo"]
 
 # format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
 JSON_ONLY_COMMANDS: frozenset[str] = frozenset(
-    {"quote", "history", "financials", "signals", "universe", "trading-day", "large-holdings"},
+    {
+        "quote",
+        "history",
+        "financials",
+        "signals",
+        "universe",
+        "trading-day",
+        "large-holdings",
+        "earnings-date",
+    },
 )
 
 
@@ -169,6 +183,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="過去何日分を検索するか (default: 90)",
     )
 
+    earnings_date_parser = subparsers.add_parser(
+        "earnings-date",
+        help="決算発表予定日を取得 (日付のみ、時刻は非対応。JSON出力)",
+    )
+    earnings_date_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
+
     return parser
 
 
@@ -199,6 +219,7 @@ def main() -> None:
         "universe": _run_universe,
         "trading-day": _run_trading_day,
         "large-holdings": _run_large_holdings,
+        "earnings-date": _run_earnings_date,
     }
     json_mode = _is_json_mode(args)
 
@@ -842,6 +863,52 @@ def _run_large_holdings(args: argparse.Namespace) -> None:
 
     items = [_build_large_holdings_item(t.symbol, service.fetch(t, days=args.days)) for t in tickers]
     print(render_success("large-holdings", items, "edinet", cache_hit=False))
+
+
+def _build_earnings_date_provider() -> JQuantsEarningsDateProvider:
+    """環境変数に基づいて決算発表予定日プロバイダを構築する。
+
+    J_QUANTS_API_KEY が設定されている場合は JQuantsClient を注入し、
+    未設定の場合は client=None のまま渡す(_build_large_holdings_providerと同型)。
+    """
+    api_key = os.environ.get("J_QUANTS_API_KEY")
+    client = JQuantsClient(api_key=api_key) if api_key else None
+    return JQuantsEarningsDateProvider(client=client)
+
+
+def _build_earnings_date_item(ticker_symbol: str, earnings_date: EarningsDate | None) -> dict:
+    """earnings-date アイテムを組み立てる。
+
+    earnings_date が None の場合、J_QUANTS_API_KEY 未設定・該当データなしの
+    いずれであっても needs_review として扱う。
+    """
+    if earnings_date is None:
+        return {
+            "ticker": ticker_symbol,
+            "status": "needs_review",
+            "date": None,
+            "company_name": None,
+            "fiscal_year": None,
+            "fiscal_quarter": None,
+        }
+    return {
+        "ticker": ticker_symbol,
+        "status": "ok",
+        "date": earnings_date.date,
+        "company_name": earnings_date.company_name,
+        "fiscal_year": earnings_date.fiscal_year,
+        "fiscal_quarter": earnings_date.fiscal_quarter,
+    }
+
+
+def _run_earnings_date(args: argparse.Namespace) -> None:
+    """earnings-date サブコマンド: J-Quants個人向けAPIで決算発表予定日を取得する (JSON出力専用)。"""
+    tickers = _validate_tickers(args.tickers)
+    provider = _build_earnings_date_provider()
+    service = EarningsDateService(provider)
+
+    items = [_build_earnings_date_item(t.symbol, service.fetch(t)) for t in tickers]
+    print(render_success("earnings-date", items, "jquants", cache_hit=False))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:
