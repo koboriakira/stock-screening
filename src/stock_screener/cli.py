@@ -49,7 +49,11 @@ from stock_screener.market_data.infrastructure.cache import FileCache
 from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockListFetcher
 from stock_screener.market_data.infrastructure.price_fetcher import fetch_history
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
-from stock_screener.market_data.service import FinancialSnapshotService, SnapshotFetchResult
+from stock_screener.market_data.service import (
+    FinancialSnapshotService,
+    SnapshotFetchResult,
+    rank_decliners,
+)
 from stock_screener.shared.config import HARD_FILTERS, US_INDEX_GAP_DOWN_THRESHOLD, dump_config
 from stock_screener.shared.json_output import (
     DATA_SOURCE_ERROR,
@@ -87,6 +91,7 @@ JSON_ONLY_COMMANDS: frozenset[str] = frozenset(
         "large-holdings",
         "earnings-date",
         "us-index",
+        "decliners",
     },
 )
 
@@ -198,6 +203,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="米国指数(S&P500・NASDAQ)の前日比騰落率を取得 (JSON出力専用)",
     )
 
+    decliners_parser = subparsers.add_parser(
+        "decliners",
+        help="JPX全銘柄の下落率ランキングを取得 (JSON出力、数十分かかる場合あり)",
+    )
+    decliners_parser.add_argument("--top", type=int, default=20, help="上位N銘柄を出力 (default: 20)")
+    decliners_parser.add_argument("--test", action="store_true", help="テストモード (少数銘柄のみ)")
+
     return parser
 
 
@@ -230,6 +242,7 @@ def main() -> None:
         "large-holdings": _run_large_holdings,
         "earnings-date": _run_earnings_date,
         "us-index": _run_us_index,
+        "decliners": _run_decliners,
     }
     json_mode = _is_json_mode(args)
 
@@ -975,6 +988,31 @@ def _run_us_index(_args: argparse.Namespace) -> None:
         raise DataSourceError(message, code=errors[0]["code"])
 
     print(render_success("us-index", items, "yfinance", errors=errors))
+
+
+def _run_decliners(args: argparse.Namespace) -> None:
+    """decliners サブコマンド: JPX全銘柄の下落率ランキングを取得する (JSON出力専用)。
+
+    全銘柄を逐次取得するため実行時間は数十分オーダーになりうる(screen コマンドと同様の
+    非機能特性。独自キャッシュや一括バッチ取得は導入しない)。
+    """
+    universe = JpxStockListFetcher().fetch()
+    if args.test:
+        universe = universe[:TEST_MODE_LIMIT]
+        logger.info("Test mode: %d stocks", TEST_MODE_LIMIT)
+
+    def _progress(current: int, total: int) -> None:
+        if current % 100 == 0 or current == total:
+            logger.info("decliners: %d/%d 銘柄処理済み", current, total)
+
+    candidates, errors = rank_decliners(
+        universe,
+        top_n=args.top,
+        fetch=lambda symbol: fetch_history(symbol, period="5d", interval="1d"),
+        progress_cb=_progress,
+    )
+    items = [dataclasses.asdict(c) for c in candidates]
+    print(render_success("decliners", items, "yfinance+jpx", errors=errors))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:

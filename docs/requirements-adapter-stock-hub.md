@@ -74,6 +74,7 @@
 | `screen` | `--top N` `--test` `--no-cache` | スクリーニング上位N件（スコア内訳付き） | JPX + yfinance | 不要 | 既存 CLI に `--format json` を追加 |
 | `evaluate <ticker>` | `--input <csv>` も許容 | Gate1/2/3 判定と各チェック結果 | yfinance（+EDINET） | 任意（EDINET_API_KEY があれば精度向上） | 既存 CLI に `--format json` を追加 |
 | `us-index` | | S&P500・NASDAQ の前日比騰落率、および閾値ベースのギャップダウンフラグ（`US_INDEX_GAP_DOWN_THRESHOLD = -1.0%` 以下で `gap_down_alert: true`） | yfinance（`^GSPC`/`^IXIC` 固定ペア、Ticker VO は非経由） | 不要 | 実装済み（koboriakira/stock-screening#5） |
+| `decliners` | `--top N`（既定20）`--test` | JPX全銘柄の下落率ランキング上位N件 | yfinance + JPX Excel（全銘柄逐次取得、数十分オーダーの実行時間になりうる。screen と同様の非機能特性） | 不要 | 実装済み（`premarket-gap`/`pts-special-quote` はデータソース未確定のため未実装、koboriakira/stock-screening#5） |
 
 複数銘柄の一括取得（`quote 7203.T 6758.T ...`）は全コマンド共通で対応する（items が銘柄数分並ぶ）。
 
