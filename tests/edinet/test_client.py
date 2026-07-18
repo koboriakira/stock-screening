@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
+from stock_screener.edinet.client import EdinetClient
 
 
 def _make_documents_response(results: list[dict]) -> dict:

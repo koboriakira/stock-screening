@@ -4,8 +4,8 @@ import logging
 
 import requests
 
+from stock_screener.edinet.client import EdinetClient
 from stock_screener.evaluation.domain.check import CheckStatus
-from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import (
     YFinanceEvaluationDataProvider,
 )

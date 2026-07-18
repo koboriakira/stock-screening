@@ -21,10 +21,10 @@ from stock_screener.discovery.domain.diff_report import DiffReport, ScreeningRes
 from stock_screener.discovery.domain.universe import Universe
 from stock_screener.discovery.infrastructure.snapshot_repository import FileSnapshotRepository
 from stock_screener.discovery.service import ScreeningService
+from stock_screener.edinet.client import EdinetClient
 from stock_screener.evaluation.domain.check import CheckStatus, GateResult
 from stock_screener.evaluation.domain.evaluation_report import EvaluationReport
 from stock_screener.evaluation.domain.evaluation_target import EvaluationTarget
-from stock_screener.evaluation.infrastructure.edinet_client import EdinetClient
 from stock_screener.evaluation.infrastructure.edinet_eval_provider import EdinetEvaluationDataProvider
 from stock_screener.evaluation.infrastructure.yfinance_eval_provider import YFinanceEvaluationDataProvider
 from stock_screener.evaluation.service import EvaluationService
