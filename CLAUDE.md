@@ -62,6 +62,7 @@ StubEvaluationDataProvider           # 全メソッド NEEDS_REVIEW / None
 - **Gate2**: 1つ以上 PASS があれば通過
 - **Gate3**: 常に通過（情報提供のみ）
 - **最終判定**: Gate1 FAIL → REJECT / Gate2 FAIL → WATCHLIST / 両方 PASS → INVEST
+- **既知の遅さ**: `EDINET_API_KEY` 設定時、`evaluate` コマンドは EDINET の日次ページング取得（`find_filings_by_sec_code` が `days=1095`/`days=365` を1日ずつAPI呼び出し）により実行に2分以上かかることがある。リグレッションではなく既存の実装上の性質
 
 ## 環境変数
 
