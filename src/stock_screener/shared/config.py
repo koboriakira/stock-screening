@@ -61,6 +61,9 @@ EVALUATION_CONFIG = {
     "gate3_per_percentile_max": 25.0,
 }
 
+# 米国指数(S&P500/NASDAQ)の前日比騰落率(%)がこの値以下ならgap_down_alert=Trueとする
+US_INDEX_GAP_DOWN_THRESHOLD = -1.0
+
 
 def dump_config() -> str:
     """Dump all screening configuration as a human-readable string."""

@@ -50,7 +50,7 @@ from stock_screener.market_data.infrastructure.jpx_stock_list import JpxStockLis
 from stock_screener.market_data.infrastructure.price_fetcher import fetch_history
 from stock_screener.market_data.infrastructure.yfinance_adapter import YFinanceSecurityRepository
 from stock_screener.market_data.service import FinancialSnapshotService, SnapshotFetchResult
-from stock_screener.shared.config import HARD_FILTERS, dump_config
+from stock_screener.shared.config import HARD_FILTERS, US_INDEX_GAP_DOWN_THRESHOLD, dump_config
 from stock_screener.shared.json_output import (
     DATA_SOURCE_ERROR,
     INVALID_ARGUMENT,
@@ -86,8 +86,12 @@ JSON_ONLY_COMMANDS: frozenset[str] = frozenset(
         "trading-day",
         "large-holdings",
         "earnings-date",
+        "us-index",
     },
 )
+
+# 固定の米国指数ペア (label, symbol)。ユーザー入力を受け付けないため Ticker VO を経由しない。
+_US_INDICES: list[tuple[str, str]] = [("sp500", "^GSPC"), ("nasdaq", "^IXIC")]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -189,6 +193,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     earnings_date_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
 
+    subparsers.add_parser(
+        "us-index",
+        help="米国指数(S&P500・NASDAQ)の前日比騰落率を取得 (JSON出力専用)",
+    )
+
     return parser
 
 
@@ -220,6 +229,7 @@ def main() -> None:
         "trading-day": _run_trading_day,
         "large-holdings": _run_large_holdings,
         "earnings-date": _run_earnings_date,
+        "us-index": _run_us_index,
     }
     json_mode = _is_json_mode(args)
 
@@ -909,6 +919,62 @@ def _run_earnings_date(args: argparse.Namespace) -> None:
 
     items = [_build_earnings_date_item(t.symbol, service.fetch(t)) for t in tickers]
     print(render_success("earnings-date", items, "jquants", cache_hit=False))
+
+
+def _build_us_index_item(label: str, symbol: str, hist: pd.DataFrame) -> dict:
+    """us-index アイテムを組み立てる。
+
+    hist の最新行と前日行から price, prev_close, change_pct, gap_down_alert を計算する。
+    """
+    last = hist.iloc[-1]
+    price = float(last["Close"])
+    if len(hist) >= 2:
+        prev_close = float(hist.iloc[-2]["Close"])
+        change_pct = round((price / prev_close - 1) * 100, 2)
+    else:
+        prev_close = None
+        change_pct = None
+    gap_down_alert = change_pct is not None and change_pct <= US_INDEX_GAP_DOWN_THRESHOLD
+    return {
+        "label": label,
+        "symbol": symbol,
+        "price": price,
+        "prev_close": prev_close,
+        "change_pct": change_pct,
+        "gap_down_alert": gap_down_alert,
+        "date": hist.index[-1].strftime("%Y-%m-%d"),
+    }
+
+
+def _run_us_index(_args: argparse.Namespace) -> None:
+    """us-index サブコマンド: 米国指数(S&P500・NASDAQ)の前日比騰落率を取得する (JSON出力専用)。
+
+    指数シンボルは固定ペア(_US_INDICES)であり、ユーザー入力を受け付けないため Ticker VO の
+    バリデーションは経由しない。
+    """
+    items: list[dict] = []
+    errors: list[dict] = []
+    fetch_error_count = 0
+    for label, symbol in _US_INDICES:
+        try:
+            hist = fetch_history(symbol, period="5d", interval="1d")
+        except Exception as e:
+            fetch_error_count += 1
+            code, message = _classify_fetch_exception(e)
+            errors.append({"ticker": symbol, "code": code, "message": message})
+            continue
+
+        if hist.empty:
+            errors.append({"ticker": symbol, "code": NO_DATA, "message": "価格データが取得できませんでした"})
+            continue
+
+        items.append(_build_us_index_item(label, symbol, hist))
+
+    if fetch_error_count == len(_US_INDICES):
+        message = "すべての指数でデータ取得に失敗しました"
+        raise DataSourceError(message, code=errors[0]["code"])
+
+    print(render_success("us-index", items, "yfinance", errors=errors))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:
