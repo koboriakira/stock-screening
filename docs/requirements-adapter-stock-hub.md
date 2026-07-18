@@ -68,7 +68,7 @@
 | `financials <ticker>` | | FinancialSnapshot 13項目 + data_completeness | yfinance | 不要 | 新規（既存 YFinanceSecurityRepository を流用） |
 | `signals <ticker>` | | RSI / BB / MACD / 出来高比 / 25MA乖離 + シグナルレベル（buy_candidate/attention/none） | yfinance + bottom_detector | 不要 | 新規（既存 detect_bottom_signals を流用） |
 | `universe` | `--market` 等のフィルタ | JPX 全銘柄リスト（コード・名称・市場・セクター） | JPX Excel | 不要 | 新規（既存 JpxStockListFetcher を流用） |
-| `trading-day [date]` | | JPX 営業日判定 | pandas_market_calendars | 不要 | 新規（既存 is_trading_day を流用） |
+| `trading-day [date]` | | JPX 営業日判定（`is_trading_day`）+ 翌営業日（`next_trading_day`）+ 寄付・引け時刻（`market_open`/`market_close`、JST、非営業日は `null`） | pandas_market_calendars | 不要 | 実装済み（既存 is_trading_day を流用 + 翌営業日・寄付引け時刻を拡張、koboriakira/stock-screening#2） |
 | `screen` | `--top N` `--test` `--no-cache` | スクリーニング上位N件（スコア内訳付き） | JPX + yfinance | 不要 | 既存 CLI に `--format json` を追加 |
 | `evaluate <ticker>` | `--input <csv>` も許容 | Gate1/2/3 判定と各チェック結果 | yfinance（+EDINET） | 任意（EDINET_API_KEY があれば精度向上） | 既存 CLI に `--format json` を追加 |
 
