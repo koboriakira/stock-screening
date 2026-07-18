@@ -27,6 +27,7 @@ def _make_filing(
     filer_name: str = "テスト株式会社",
     doc_description: str = "有価証券報告書",
     submit_date_time: str = "2025-01-15 09:00",
+    issuer_edinet_code: str | None = None,
 ) -> dict:
     return {
         "docID": doc_id,
@@ -36,6 +37,7 @@ def _make_filing(
         "docDescription": doc_description,
         "submitDateTime": submit_date_time,
         "edinetCode": "E00001",
+        "issuerEdinetCode": issuer_edinet_code,
     }
 
 
@@ -148,6 +150,102 @@ class TestFindFilingsBySecCode:
         with patch("requests.get", return_value=mock_response):
             client = EdinetClient(api_key="test-key")
             results = client.find_filings_by_sec_code("72030", doc_type_codes=["120"], days=1)
+
+        assert results == []
+
+
+class TestFindFilingsByIssuerEdinetCode:
+    def test_finds_matching_filings(self):
+        target = _make_filing(issuer_edinet_code="E00004", doc_type_code="350")
+        other = _make_filing(issuer_edinet_code="E00099", doc_type_code="350")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = _make_documents_response([target, other])
+
+        with patch("requests.get", return_value=mock_response):
+            client = EdinetClient(api_key="test-key")
+            results = client.find_filings_by_issuer_edinet_code(
+                "E00004",
+                doc_type_codes=["350"],
+                days=1,
+            )
+
+        assert len(results) == 1
+        assert results[0]["issuerEdinetCode"] == "E00004"
+
+    def test_filters_by_doc_type(self):
+        report_350 = _make_filing(issuer_edinet_code="E00004", doc_type_code="350")
+        report_360 = _make_filing(issuer_edinet_code="E00004", doc_type_code="360")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = _make_documents_response([report_350, report_360])
+
+        with patch("requests.get", return_value=mock_response):
+            client = EdinetClient(api_key="test-key")
+            results = client.find_filings_by_issuer_edinet_code(
+                "E00004",
+                doc_type_codes=["360"],
+                days=1,
+            )
+
+        assert len(results) == 1
+        assert results[0]["docTypeCode"] == "360"
+
+    def test_searches_multiple_days(self):
+        call_count = 0
+        filing = _make_filing(issuer_edinet_code="E00004", doc_type_code="350")
+
+        def mock_get(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            resp = MagicMock()
+            resp.status_code = 200
+            if call_count == 1:
+                resp.json.return_value = _make_documents_response([filing])
+            else:
+                resp.json.return_value = _make_documents_response([])
+            return resp
+
+        with patch("requests.get", side_effect=mock_get):
+            client = EdinetClient(api_key="test-key")
+            results = client.find_filings_by_issuer_edinet_code(
+                "E00004",
+                doc_type_codes=["350"],
+                days=3,
+            )
+
+        assert len(results) == 1
+        assert call_count == 3
+
+    def test_returns_empty_when_no_match(self):
+        filing = _make_filing(issuer_edinet_code="E00099", doc_type_code="350")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = _make_documents_response([filing])
+
+        with patch("requests.get", return_value=mock_response):
+            client = EdinetClient(api_key="test-key")
+            results = client.find_filings_by_issuer_edinet_code(
+                "E00004",
+                doc_type_codes=["350"],
+                days=1,
+            )
+
+        assert results == []
+
+    def test_handles_none_issuer_edinet_code_in_results(self):
+        filing = _make_filing(issuer_edinet_code=None, doc_type_code="350")
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = _make_documents_response([filing])
+
+        with patch("requests.get", return_value=mock_response):
+            client = EdinetClient(api_key="test-key")
+            results = client.find_filings_by_issuer_edinet_code(
+                "E00004",
+                doc_type_codes=["350"],
+                days=1,
+            )
 
         assert results == []
 

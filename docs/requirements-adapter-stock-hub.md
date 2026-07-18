@@ -69,6 +69,7 @@
 | `signals <ticker>` | | RSI / BB / MACD / 出来高比 / 25MA乖離 + シグナルレベル（buy_candidate/attention/none） | yfinance + bottom_detector | 不要 | 新規（既存 detect_bottom_signals を流用） |
 | `universe` | `--market` 等のフィルタ | JPX 全銘柄リスト（コード・名称・市場・セクター） | JPX Excel | 不要 | 新規（既存 JpxStockListFetcher を流用） |
 | `trading-day [date]` | | JPX 営業日判定（`is_trading_day`）+ 翌営業日（`next_trading_day`）+ 寄付・引け時刻（`market_open`/`market_close`、JST、非営業日は `null`） | pandas_market_calendars | 不要 | 実装済み（既存 is_trading_day を流用 + 翌営業日・寄付引け時刻を拡張、koboriakira/stock-screening#2） |
+| `large-holdings <ticker>` | `--days`（既定90） | 大量保有報告書（5%ルール、docTypeCode 350/360）の提出日時・提出者名・証券コード（`status`: `ok`/`needs_review`） | EDINET（大量保有報告 + EDINETコードリスト） | 必須（EDINET_API_KEY 未設定時は全件 `status: "needs_review"`） | 実装済み（corporate_events/ 新設、EdinetClient を edinet/ へ移動、koboriakira/stock-screening#3） |
 | `screen` | `--top N` `--test` `--no-cache` | スクリーニング上位N件（スコア内訳付き） | JPX + yfinance | 不要 | 既存 CLI に `--format json` を追加 |
 | `evaluate <ticker>` | `--input <csv>` も許容 | Gate1/2/3 判定と各チェック結果 | yfinance（+EDINET） | 任意（EDINET_API_KEY があれば精度向上） | 既存 CLI に `--format json` を追加 |
 
@@ -168,6 +169,7 @@ allowed-tools: Bash, Read
 ## 7. 既知の課題（調査で見つかった負債）
 
 - `data/calendar.json` は3銘柄のみの手動メンテ。`trading-day` は pandas_market_calendars 由来なので影響ないが、決算日・配当権利日を契約に含めるならデータソースが必要（現状は含めない）
+- EDINETコードリスト（`Edinetcode.zip`）の実データ構造を2026-07-18に確認した: 1行目=タイトル行（ダウンロード実行日・件数、当時11,348件）、2行目=ヘッダ行、3行目以降がデータ。エンコーディングは Shift-JIS（cp932）。証券コード列（`証券コード`、13列目）は5桁ゼロ埋め済みで `EdinetClient.ticker_to_sec_code()` の出力形式と一致するため単純な文字列一致で突合できる。非上場の発行会社は証券コード列が空文字列になる。キャッシュは `FileCache(ttl_hours=168)`（1週間）で運用する
 - Slack チャンネル ID がハードコード（`slack_notifier.py`）。非スコープ化に伴い当面放置可
 - `tmp:issue/` の旧仕様書2件（watchlist v2 / Layer6 PRD）は実装済み機能の初期設計書。位置づけ転換後に docs/ へ整理 or 削除を判断
 - codetour のコード規模記述が陳腐化（Phase C のドキュメント更新に含める）

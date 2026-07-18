@@ -15,6 +15,11 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 
+from stock_screener.corporate_events.domain.large_holding import LargeHoldingFiling
+from stock_screener.corporate_events.infrastructure.large_holding_provider import (
+    EdinetLargeHoldingProvider,
+)
+from stock_screener.corporate_events.service import LargeHoldingsService
 from stock_screener.discovery.domain.anomaly_detector import AnomalyDetector
 from stock_screener.discovery.domain.candidate import ScreeningResult
 from stock_screener.discovery.domain.diff_report import DiffReport, ScreeningResultSnapshot
@@ -67,7 +72,7 @@ HISTORY_INTERVAL_CHOICES = ["1d", "1wk", "1mo"]
 
 # format=json またはこの集合に含まれるコマンドは JSON 出力モードになる。
 JSON_ONLY_COMMANDS: frozenset[str] = frozenset(
-    {"quote", "history", "financials", "signals", "universe", "trading-day"},
+    {"quote", "history", "financials", "signals", "universe", "trading-day", "large-holdings"},
 )
 
 
@@ -152,6 +157,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="判定対象日 (YYYY-MM-DD, 省略時は JST の今日)",
     )
 
+    large_holdings_parser = subparsers.add_parser(
+        "large-holdings",
+        help="大量保有報告書(5%ルール)を取得 (JSON出力)",
+    )
+    large_holdings_parser.add_argument("tickers", nargs="+", help="ティッカーシンボル (複数可)")
+    large_holdings_parser.add_argument(
+        "--days",
+        type=int,
+        default=90,
+        help="過去何日分を検索するか (default: 90)",
+    )
+
     return parser
 
 
@@ -181,6 +198,7 @@ def main() -> None:
         "signals": _run_signals,
         "universe": _run_universe,
         "trading-day": _run_trading_day,
+        "large-holdings": _run_large_holdings,
     }
     json_mode = _is_json_mode(args)
 
@@ -792,6 +810,38 @@ def _run_trading_day(args: argparse.Namespace) -> None:
         "market_close": open_close[1].isoformat() if open_close else None,
     }
     print(render_success("trading-day", [item], "pandas_market_calendars", cache_hit=False))
+
+
+def _build_large_holdings_provider() -> EdinetLargeHoldingProvider:
+    """環境変数に基づいて大量保有報告プロバイダを構築する。
+
+    EDINET_API_KEY が設定されている場合は EdinetClient を注入し、
+    未設定の場合は edinet_client=None のまま渡す(_build_eval_providerと同型)。
+    """
+    api_key = os.environ.get("EDINET_API_KEY")
+    client = EdinetClient(api_key=api_key) if api_key else None
+    return EdinetLargeHoldingProvider(edinet_client=client)
+
+
+def _build_large_holdings_item(ticker_symbol: str, filings: list[LargeHoldingFiling] | None) -> dict:
+    """large-holdings アイテムを組み立てる。filings が None の場合は EDINET未設定(needs_review)。"""
+    if filings is None:
+        return {"ticker": ticker_symbol, "status": "needs_review", "filings": []}
+    return {
+        "ticker": ticker_symbol,
+        "status": "ok",
+        "filings": [dataclasses.asdict(f) for f in filings],
+    }
+
+
+def _run_large_holdings(args: argparse.Namespace) -> None:
+    """large-holdings サブコマンド: EDINET大量保有報告書(5%ルール)を取得する (JSON出力専用)。"""
+    tickers = _validate_tickers(args.tickers)
+    provider = _build_large_holdings_provider()
+    service = LargeHoldingsService(provider)
+
+    items = [_build_large_holdings_item(t.symbol, service.fetch(t, days=args.days)) for t in tickers]
+    print(render_success("large-holdings", items, "edinet", cache_hit=False))
 
 
 def _gate_stats_str(gate_result: GateResult) -> str:

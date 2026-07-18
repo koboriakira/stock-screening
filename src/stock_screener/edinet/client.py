@@ -66,6 +66,37 @@ class EdinetClient:
                     matches.append(doc)
         return matches
 
+    def find_filings_by_issuer_edinet_code(
+        self,
+        issuer_edinet_code: str,
+        doc_type_codes: list[str],
+        days: int,
+    ) -> list[dict]:
+        """発行会社のEDINETコードと書類種別で過去N日間の提出書類を検索する。
+
+        secCodeは提出者(保有者)側のコードのため、大量保有報告の対象銘柄検索には
+        issuerEdinetCodeで絞り込む必要がある。
+
+        Args:
+            issuer_edinet_code: 発行会社のEDINETコード(例: 'E00004')。
+            doc_type_codes: 対象とする書類種別コードのリスト(例: ['350', '360'])。
+            days: 過去何日分を検索するか。
+
+        Returns:
+            条件に合致する書類メタデータのリスト。
+        """
+        matches: list[dict] = []
+        today = datetime.now(tz=UTC).date()
+        for i in range(days):
+            date = (today - timedelta(days=i)).isoformat()
+            documents = self.get_documents(date)
+            for doc in documents:
+                doc_issuer_code = doc.get("issuerEdinetCode")
+                doc_type = doc.get("docTypeCode")
+                if doc_issuer_code == issuer_edinet_code and doc_type in doc_type_codes:
+                    matches.append(doc)
+        return matches
+
     @staticmethod
     def ticker_to_sec_code(ticker_raw: str) -> str:
         """ティッカーシンボルを EDINET 用の5桁証券コードに変換する。
